@@ -31,7 +31,7 @@
 
 | Job | 內容 | DoD |
 |-----|------|-----|
-| J0.1 | **Mac Mini 上**驗證實際資料深度：`backfill_progress` 游標、`daily_prices`/`institutional_flows`/`rank_snapshots` 起訖日與缺日率（可沿用 `data_quality_checks` 機制落地結果） | 一頁 `docs/strong-signal-data-audit.md`：各表日期範圍/缺日率/結論 |
+| J0.1 | **Mac Mini 上**驗證實際資料深度：`backfill_progress` 游標、`daily_prices`/`institutional_flows`/`rank_snapshots` 起訖日與缺日率。腳本已完成：`scripts/tw_strong_signal_data_audit.py`（openclaw-workspace 分支 `claude/tw-strong-signal-data-audit`），在 Mac Mini 執行 `python3 scripts/tw_strong_signal_data_audit.py --write-report` | 一頁 `docs/strong-signal-data-audit.md`：各表日期範圍/缺日率/pass-warn-fail 判定 |
 | J0.2 | 深度不足 3 年處，用既有 `--backfill-twse-daily` / `--backfill-tpex-daily` / `--backfill-institutional-flows`（resume + sleep 節流）補齊 | MVP D1 通過 |
 | J0.3 | **除權息資料線**：新增 `tw_corporate_actions.py` 抓 TWSE/TPEX 除權息公告（或 FinMind 備援），入 `dividends` 表 + 還原係數表；stdlib-only | 抽 5 檔與公開資料核對事件無漏 |
 | J0.4 | 還原價計算與驗證：還原報酬 vs 公開還原序列 | MVP D2 通過 |
