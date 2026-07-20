@@ -37,8 +37,10 @@
 > 五輪分流全數收斂——減資入庫、面額變更入庫、新上市前 5 個觀測日無漲跌幅豁免、
 > gap 內已有 factor 豁免、sparse/no-close gap（中間列 close 全 NULL，官方 change_amount
 > 以參考價計）列 review/deferred（2740/6103/3629/1435 共 7 筆，文件化於資料線 docs）。
-> **J0.4 唯一未竟項：D2 跨源抽驗**——挑 5 檔把窗內還原報酬與公開還原序列比對（<0.1%），
-> 過了 Phase 0 資料部分正式關閉。J0.5 部分完成（資本事件表 + run logs 已入 schema）。
+> **J0.4 ✅ 完成（含 D2 抽驗）**：逐事件跨源核對 5 檔（0050 分割/4414 減資/7780 面額變更/
+> 2429 除權/2740 sparse-gap）全過；累積跨源比對 vs Yahoo Adj Close——0050 差 0.000012pp、
+> 2603 差 0.0067pp、2330 窗內 12 筆季配與實際吻合（排除整批漏抓）。**Phase 0 資料部分關閉**。
+> J0.5 部分完成（資本事件表 + run logs 已入 schema）；接續：J0.6 point-in-time 介面 → J0.7 骨架。
 > 教訓回饋：資本事件遠不只除權息（減資、面額變更、新上市無漲跌幅、無成交參考價重設
 > 全部撞過一次）；audit 的 hardcode known-exception 清單由 `capital_events.suspend_*` 取代（收尾中）。
 
