@@ -40,7 +40,12 @@
 > **J0.4 ✅ 完成（含 D2 抽驗）**：逐事件跨源核對 5 檔（0050 分割/4414 減資/7780 面額變更/
 > 2429 除權/2740 sparse-gap）全過；累積跨源比對 vs Yahoo Adj Close——0050 差 0.000012pp、
 > 2603 差 0.0067pp、2330 窗內 12 筆季配與實際吻合（排除整批漏抓）。**Phase 0 資料部分關閉**。
-> J0.5 部分完成（資本事件表 + run logs 已入 schema）；接續：J0.6 point-in-time 介面 → J0.7 骨架。
+> J0.5 部分完成（資本事件表 + run logs 已入 schema）。
+> **J0.6 ✅ 完成**（PR #7 `tw_strong_signal_data.py`）：唯一取數入口，`as_of` 強制、四條
+> lookahead 契約（日價/排行 ≤ as_of、法人 < as_of、factor ex_date ≤ as_of、point-in-time
+> universe）、12 項 self-check + Mac Mini 實機驗證通過——2330 累積 factor 與 D2 文件逐位一致，
+> universe 2,027 檔、**≥5,000 萬流動性池 789 檔**（= Phase 1 實際選股池）。
+> 剩：J0.7 骨架、J0.8 shim 清理，然後進 Phase 1。
 > 教訓回饋：資本事件遠不只除權息（減資、面額變更、新上市無漲跌幅、無成交參考價重設
 > 全部撞過一次）；audit 的 hardcode known-exception 清單由 `capital_events.suspend_*` 取代（收尾中）。
 
