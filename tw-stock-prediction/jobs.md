@@ -29,15 +29,18 @@
 目標：把「能力存在」變成「資料驗證過可用」，並補上 MVP 唯一的硬資料缺口（還原價）。
 對應 PRD §2.2 G1、§2.3 V1–V3。
 
-> **進度（2026-07-20）**：J0.1 ✅（audit 腳本三輪迭代後在 Mac Mini 驗證完成，報告在
-> dataops `docs/strong-signal-data-audit.md`）；J0.2 ✅（TWSE/TPEX 日價與法人皆 726/726
-> 交易日；0050 於 2025-06-11~17 分割停牌列為 known exception，未以 NAV 假造成交價）。
-> J0.3 ✅ 實作交付（openclaw-workspace PR #4：`tw_corporate_actions.py` + schema + 資料線文件；
-> 合成資料端到端測試通過，含 0050 分割 ratio 錯誤/漏登事件偵測）——待 Mac Mini 執行
-> `--probe`（TPEX 端點活測）→ 回填 → `--rebuild-factors --validate`，validate 全過即 J0.4 完成。
-> J0.5 部分完成（資本事件相關表已在 `schema/tw_strong_signal.sql`；features/predictions 待補）。
-> 過程教訓已回饋規格：J0.3 必須涵蓋分割/併股/減資，不只除權息；audit 的 hardcode
-> known-exception 清單將由 `capital_events.suspend_start/end` 取代（排入 J0.4 收尾）。
+> **進度（2026-07-20 晚）**：J0.1 ✅、J0.2 ✅（見前版記錄）。
+> **J0.3 ✅ 完成**：`tw_corporate_actions.py` 三組官方來源皆已在 Mac Mini 活測入庫——
+> 除權息（TWSE TWT49U + TPEX exDailyQ）、減資恢復買賣參考價、**面額變更恢復買賣參考價**
+> （13 筆，含 7780/6919/2327/8422 等彈性面額股）；0050 分割手動登錄。
+> **J0.4 gating 歸零**（`--rebuild-factors --validate` exit 0）：46 件 raw-jump suspect 經
+> 五輪分流全數收斂——減資入庫、面額變更入庫、新上市前 5 個觀測日無漲跌幅豁免、
+> gap 內已有 factor 豁免、sparse/no-close gap（中間列 close 全 NULL，官方 change_amount
+> 以參考價計）列 review/deferred（2740/6103/3629/1435 共 7 筆，文件化於資料線 docs）。
+> **J0.4 唯一未竟項：D2 跨源抽驗**——挑 5 檔把窗內還原報酬與公開還原序列比對（<0.1%），
+> 過了 Phase 0 資料部分正式關閉。J0.5 部分完成（資本事件表 + run logs 已入 schema）。
+> 教訓回饋：資本事件遠不只除權息（減資、面額變更、新上市無漲跌幅、無成交參考價重設
+> 全部撞過一次）；audit 的 hardcode known-exception 清單由 `capital_events.suspend_*` 取代（收尾中）。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
