@@ -29,12 +29,17 @@
 目標：把「能力存在」變成「資料驗證過可用」，並補上 MVP 唯一的硬資料缺口（還原價）。
 對應 RPD §2.2 G1、§2.3 V1–V3。
 
+> **進度（2026-07-20）**：J0.1 ✅（audit 腳本三輪迭代後在 Mac Mini 驗證完成，報告在
+> dataops `docs/strong-signal-data-audit.md`）；J0.2 ✅（TWSE/TPEX 日價與法人皆 726/726
+> 交易日；0050 於 2025-06-11~17 分割停牌列為 known exception，未以 NAV 假造成交價）。
+> 過程教訓已回饋規格：J0.3 必須涵蓋分割/併股/減資，不只除權息。
+
 | Job | 內容 | DoD |
 |-----|------|-----|
 | J0.1 | **Mac Mini 上**驗證實際資料深度：`backfill_progress` 游標、`daily_prices`/`institutional_flows`/`rank_snapshots` 起訖日與缺日率。腳本已完成：`scripts/tw_strong_signal_data_audit.py`（openclaw-workspace 分支 `claude/tw-strong-signal-data-audit`），在 Mac Mini 執行 `python3 scripts/tw_strong_signal_data_audit.py --write-report` | 一頁 `docs/strong-signal-data-audit.md`：各表日期範圍/缺日率/pass-warn-fail 判定 |
 | J0.2 | 深度不足 3 年處，用既有 `--backfill-twse-daily` / `--backfill-tpex-daily` / `--backfill-institutional-flows`（resume + sleep 節流）補齊 | MVP D1 通過 |
-| J0.3 | **除權息資料線**：新增 `tw_corporate_actions.py` 抓 TWSE/TPEX 除權息公告（或 FinMind 備援），入 `dividends` 表 + 還原係數表；stdlib-only | 抽 5 檔與公開資料核對事件無漏 |
-| J0.4 | 還原價計算與驗證：還原報酬 vs 公開還原序列 | MVP D2 通過 |
+| J0.3 | **資本事件資料線**：新增 `tw_corporate_actions.py` 抓 TWSE/TPEX 除權息公告 + **分割/併股/減資**事件（或 FinMind 備援），入 `dividends`/`capital_events` 表 + 還原係數表；含停牌區間記錄（audit known-exception 的資料來源）；stdlib-only | 抽 5 檔與公開資料核對事件無漏；**0050 2025-06 分割**為必測案例 |
+| J0.4 | 還原價計算與驗證：還原報酬 vs 公開還原序列；分割還原後 0050 序列在 2025-06 必須連續（否則基準報酬在該日出現假暴跌） | MVP D2 通過 |
 | J0.5 | `schema/tw_strong_signal.sql`：`dividends`、`adjust_factors`、`features_cache`、`predictions`、`signal_runs`（比照既有 `fetch_runs` 模式） | schema 進 Git；`init_db` 可重入 |
 | J0.6 | Point-in-time 取數介面：ATTACH market + rankings 兩庫，`as_of` 強制；含法人資料時點規則（MVP §6 保守版） | 測試：`as_of=D` 取不到 D+1 資料；法人只到 D-1 |
 | J0.7 | 專案骨架：`tw_strong_signal.py` / `tw_backtest.py` 空殼 + 測試框架（比照 repo 現有腳本自帶 `--test-mode` 慣例，或加 pytest——擇一記錄決策） | 空跑綠燈 |
