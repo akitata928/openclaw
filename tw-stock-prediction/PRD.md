@@ -1,6 +1,6 @@
-# RPD — 台股強勢股預測與回測自動化系統
+# PRD — 台股強勢股預測與回測自動化系統
 
-> Requirements & Product Design。本文件定義專案目標、範圍、需求與限制。
+> Product Requirements Document。本文件定義專案目標、範圍、需求與限制。
 > 實作切分見 `MVP.md`，各 Phase 工作項見 `jobs.md`。
 > 現況盤點依據：`akitata928/openclaw-workspace` → `repos/openclaw-jojo-dataops`
 > （`scripts/tw_market_core.py` 2,450 行、`scripts/tw_stock_rankings.py`、
@@ -47,7 +47,7 @@
 
 | # | 缺口 | 說明 |
 |---|------|------|
-| G1 | **還原權息價** | `daily_prices` 為原始價；除息日會被誤判為下跌，報酬計算必須先解決 |
+| G1 | **還原權息價** | `daily_prices` 為原始價；除息日會被誤判為下跌，報酬計算必須先解決。範圍含分割/併股/減資（0050 2025-06 分割案例證實）。**實作已交付**（`tw_corporate_actions.py`，workspace PR #4），待 Mac Mini 驗證 |
 | G2 | 融資融券餘額 | 未入庫；訊號 v2 才需要 |
 | G3 | 處置股/注意股/全額交割股清單 | 未入庫；股票池過濾先用近似規則 |
 | G4 | 訊號 → 預測 → 回測閉環 | 完全不存在，本專案主體 |

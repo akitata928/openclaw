@@ -1,6 +1,6 @@
 # jobs — 分 Phase 工作項
 
-> 上游文件：`RPD.md`（需求與現況盤點）、`MVP.md`（MVP 範圍）。
+> 上游文件：`PRD.md`（需求與現況盤點）、`MVP.md`（MVP 範圍）。
 > 原則：每個 Phase 結束都有**獨立可用的產出**，可隨時停在任一 Phase 而不爛尾。
 > 工作項編號 `J<phase>.<seq>`；每項含產出與完成條件（DoD）。
 > 程式落點：`repos/openclaw-jojo-dataops`（遵循該 repo Data Line Pattern 與 stdlib-only cron 慣例）。
@@ -27,12 +27,17 @@
 ## Phase 0 — 資料驗證與還原價
 
 目標：把「能力存在」變成「資料驗證過可用」，並補上 MVP 唯一的硬資料缺口（還原價）。
-對應 RPD §2.2 G1、§2.3 V1–V3。
+對應 PRD §2.2 G1、§2.3 V1–V3。
 
 > **進度（2026-07-20）**：J0.1 ✅（audit 腳本三輪迭代後在 Mac Mini 驗證完成，報告在
 > dataops `docs/strong-signal-data-audit.md`）；J0.2 ✅（TWSE/TPEX 日價與法人皆 726/726
 > 交易日；0050 於 2025-06-11~17 分割停牌列為 known exception，未以 NAV 假造成交價）。
-> 過程教訓已回饋規格：J0.3 必須涵蓋分割/併股/減資，不只除權息。
+> J0.3 ✅ 實作交付（openclaw-workspace PR #4：`tw_corporate_actions.py` + schema + 資料線文件；
+> 合成資料端到端測試通過，含 0050 分割 ratio 錯誤/漏登事件偵測）——待 Mac Mini 執行
+> `--probe`（TPEX 端點活測）→ 回填 → `--rebuild-factors --validate`，validate 全過即 J0.4 完成。
+> J0.5 部分完成（資本事件相關表已在 `schema/tw_strong_signal.sql`；features/predictions 待補）。
+> 過程教訓已回饋規格：J0.3 必須涵蓋分割/併股/減資，不只除權息；audit 的 hardcode
+> known-exception 清單將由 `capital_events.suspend_start/end` 取代（排入 J0.4 收尾）。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
@@ -43,7 +48,7 @@
 | J0.5 | `schema/tw_strong_signal.sql`：`dividends`、`adjust_factors`、`features_cache`、`predictions`、`signal_runs`（比照既有 `fetch_runs` 模式） | schema 進 Git；`init_db` 可重入 |
 | J0.6 | Point-in-time 取數介面：ATTACH market + rankings 兩庫，`as_of` 強制；含法人資料時點規則（MVP §6 保守版） | 測試：`as_of=D` 取不到 D+1 資料；法人只到 D-1 |
 | J0.7 | 專案骨架：`tw_strong_signal.py` / `tw_backtest.py` 空殼 + 測試框架（比照 repo 現有腳本自帶 `--test-mode` 慣例，或加 pytest——擇一記錄決策） | 空跑綠燈 |
-| J0.8 | 順手清理（RPD §2.4）：workspace `scripts/tw_stock_rankings.py` 改為 shim，消除雙版本 | 兩處行為一致 |
+| J0.8 | 順手清理（PRD §2.4）：workspace `scripts/tw_stock_rankings.py` 改為 shim，消除雙版本 | 兩處行為一致 |
 
 **Phase 0 產出**：驗證過的歷史資料 + 還原價 + 取數介面。停在這裡，資料庫本身已升級。
 
@@ -58,7 +63,7 @@
 |-----|------|-----|
 | J1.1 | 股票池模組：`security_category='common_stock'`、當日 active（`listed_date`/`delisted_date`/`is_active`）、日均成交值 ≥ 5,000 萬、「連續漲停」近似剔除處置股 | 單元測試含下市股情境（防存活者偏差） |
 | J1.2 | 特徵計算（純函式）：5/20/60 日**還原**報酬、量比（5 日均量/60 日均量）、波動度、排行動能（`entered_top20`、`rank_delta_1d`、成交值排名變化）、法人 5 日累計淨買超/成交量比 | 2–3 檔手算樣本驗證；全市場單日 < 5 分鐘（stdlib + SQL） |
-| J1.3 | 規則評分：特徵 z-score 加權合成 → Top N；權重集中一個 config；含降級路徑（排行資料缺時僅用價量+法人，RPD §10 Yahoo 風險） | 確定性測試：同輸入同輸出 |
+| J1.3 | 規則評分：特徵 z-score 加權合成 → Top N；權重集中一個 config；含降級路徑（排行資料缺時僅用價量+法人，PRD §10 Yahoo 風險） | 確定性測試：同輸入同輸出 |
 | J1.4 | `predictions` 落地 + `tw_strong_signal.py` 主流程：取數 → 特徵 → 評分 → 快照（股票、分數、特徵值、訊號版本號）→ Telegram-ready 摘要塊（cron 交付慣例，`docs/cron.md`） | 連續 5 交易日手動執行成功（MVP D6） |
 | J1.5 | 快照含「理由欄位」：每檔列主要得分來源，供人工覆核 | 隨機抽查合理 |
 
@@ -90,12 +95,12 @@
 
 | Job | 內容 | DoD |
 |-----|------|-----|
-| J3.1 | 新增 cron job（建議 `daily_tw_strong_signal_1700`，在 06:00/12:00 資料更新與 14:00 排行之後；Gateway `command` payload，遵循 `docs/cron.md` 安全規範與非空摘要交付規則） | 連續 10 交易日零人工（RPD 成功指標）；cron note 進 docs |
+| J3.1 | 新增 cron job（建議 `daily_tw_strong_signal_1700`，在 06:00/12:00 資料更新與 14:00 排行之後；Gateway `command` payload，遵循 `docs/cron.md` 安全規範與非空摘要交付規則） | 連續 10 交易日零人工（PRD 成功指標）；cron note 進 docs |
 | J3.2 | 失敗處理：依賴資料未就緒（`daily_update_runs` 非 ok）時 skip-with-notice；比照既有 primary/retry 兩段式模式加重試 slot | 人為斷資料演練：收到告警且隔日自動補齊 |
 | J3.3 | 法人時點規則放寬：cron 固定 17:00 後跑則 D 日法人可用；改規則 + 重跑前視測試 + 回測對照 | 前視測試通過；對照報告落地 |
-| J3.4 | 融資融券餘額入庫（TWSE/TPEX 官方或 FinMind；RPD G2） | 回填 ≥ 1 年，品質檢查通過 |
-| J3.5 | 處置股/注意股清單入庫（RPD G3），股票池改用真實清單 | 取代「連續漲停」近似 |
-| J3.6 | TAIEX Total Return 指數歷史入庫（RPD G5），報告加第二基準 | 基準曲線抽查相符 |
+| J3.4 | 融資融券餘額入庫（TWSE/TPEX 官方或 FinMind；PRD G2） | 回填 ≥ 1 年，品質檢查通過 |
+| J3.5 | 處置股/注意股清單入庫（PRD G3），股票池改用真實清單 | 取代「連續漲停」近似 |
+| J3.6 | TAIEX Total Return 指數歷史入庫（PRD G5），報告加第二基準 | 基準曲線抽查相符 |
 | J3.7 | 訊號 v2：納入融資券特徵（券資比、融資增減率），回測對照 v1 | v1 vs v2 對照報告 |
 | J3.8 | 日報升級：每日清單 + 昨日預測對答案摘要進 Telegram | 每日自動收到 |
 

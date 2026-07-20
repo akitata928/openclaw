@@ -1,6 +1,6 @@
 # MVP — 最小可行版本定義
 
-> 上游文件：`RPD.md`（需求與現況盤點）。工作項拆解：`jobs.md`。
+> 上游文件：`PRD.md`（需求與現況盤點）。工作項拆解：`jobs.md`。
 > MVP 對應 jobs.md 的 Phase 0–2；Phase 3 之後為 MVP 後迭代。
 
 ## 1. MVP 一句話
@@ -16,9 +16,9 @@ MVP 完成時必須能用數字回答。
 ### In（MVP 必做）
 
 1. **資料驗證與補缺**（既有能力多，工作比原估少）：
-   - 在 Mac Mini 驗證 `daily_prices` / `institutional_flows` 實際深度（RPD §2.3），
+   - 在 Mac Mini 驗證 `daily_prices` / `institutional_flows` 實際深度（PRD §2.3），
      不足 3 年用既有 `--backfill-*`（含 resume）補。
-   - **還原權息價**（RPD G1）：新增除權息事件入庫 + 還原係數計算。這是 MVP 最大的新資料工作。
+   - **還原權息價**（PRD G1）：新增除權息事件入庫 + 還原係數計算。這是 MVP 最大的新資料工作。
 2. **Point-in-time 取數介面**：ATTACH `tw_market.sqlite` + `tw_stock_rankings.sqlite`，
    `as_of` 參數強制；訊號與回測唯一取數入口。
 3. **規則式訊號 v1**（刻意簡單，當基線；特徵比原規劃多是因為法人與排行動能資料現成）：
@@ -57,7 +57,8 @@ repos/openclaw-jojo-dataops/
 │   └── tw_strong_signal.sql        # dividends、adjust_factors、features_cache、
 │                                   # predictions、signal_runs
 ├── scripts/
-│   ├── tw_corporate_actions.py     # 除權息事件抓取 + 還原係數（cron 路徑, stdlib）
+│   ├── tw_corporate_actions.py     # 除權息+資本事件（分割/併股/減資）抓取與登錄、
+│   │                               # 還原係數重建與連續性驗證（cron 路徑, stdlib）✅ 已交付
 │   ├── tw_strong_signal.py         # 每日：point-in-time 取數 → 特徵 → 評分 →
 │   │                               # Top10 快照 + 驗證 + Telegram-ready 摘要（stdlib）
 │   └── tw_backtest.py              # 研究：區間回測 → 報告（允許 pandas/vectorbt，
