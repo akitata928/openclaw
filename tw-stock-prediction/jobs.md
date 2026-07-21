@@ -180,26 +180,88 @@
 > `requirements-backtest.txt` 建獨立 venv，cron 路徑（`tw_strong_signal.py`）維持 stdlib-only
 > 不受影響。決策記錄：`docs/tw-backtest-engine.md`。
 >
-> **J2.2/J2.3 完成（2026-07-21，Claude）**：`tw_backtest_costs.py`（純 stdlib，17 項 self-check）
+> **J2.2/J2.3 完成（2026-07-21，Claude + JoJo Mac Mini smoke）**：`tw_backtest_costs.py`（純 stdlib，18 項 self-check）
 > 封裝台股 tick 網格、買 0.1425%/賣 0.4425% 不對稱成本、漲停擋買/跌停擋賣。`tw_backtest.py`
 > 重寫為 vectorbt 引擎，**每換股日呼叫同一個 `build_signal_snapshot()`**（結構保證 J2.4）；
 > 進場等權重、持有到出榜才賣（每筆訂單方向明確→成本精確）；T+1 開盤成交、漲停 NaN 拒單。
+> Mac Mini formal DB smoke 找到並修正 NaN `prev_close` 邊界：缺價/非有限值不進漲跌停 tick rounding，
+> 不阻擋交易。
 > **效能修正**：J1.2 `build_features` 原每檔掃全表 O(N²)→3 年回測外推 11 分鐘超標；新增
 > `build_features_pooled()`（一次分組 O(N)，輸出逐 byte 相同，self-check 斷言），
 > `build_signal_snapshot()` 改用它，**live 訊號與回測同時快 9.5 倍**；合成 800 檔每換股日
 > 4.47s→0.47s，3 年回測外推 70 秒 = 1.2 分鐘。cron 路徑（features/scoring/data/signal）
-> 無 venv self-check 仍全過。
+> 無 venv self-check 仍全過。正式 DB 三年回測（2023-07-21..2026-07-17）`real 39.38s`，
+> 725 交易日、145 次換股、745 檔交易標的、2090 orders、1050 trades；metrics 見下方。
+>
+> **J2.4/J2.5/J2.6 完成（2026-07-21，Claude）= MVP 閉環的最後三塊**：
+> - **J2.4 前視偏差測試** `tw_backtest_lookahead.py`（純 stdlib）：把「回測選股 == live 選股」
+>   從結構重言式升級為真正的 PIT 證明——比較完整 DB 與**實體截斷 DB**（只留 D 日前可觀測列）
+>   的 `build_signal_snapshot(D)`。截斷邊界逐條對齊四條 lookahead 契約；因法人截在 `< D`，
+>   若有人把 gateway 放寬成 `<= as_of` 會讀到被刪掉的 D 日列 → 分歧 → FAIL。**負向對照**：
+>   注入多讀一天的 leaky gateway，測試如實回報 `match=False`，證明 harness 抓得到 lookahead
+>   （不是空過）。self-check 8 項全過。
+> - **J2.5 績效報告** `tw_backtest_report.py`（純 stdlib，吃引擎 JSON）：加年化換手率與逐年分拆，
+>   誠實輸出 `BEATS`/`LOSES TO` 判決。引擎新增 `equity_curve`/`benchmark_curve`。self-check 16 項。
+> - **J2.6 可重現性**：引擎 self-check 斷言同參數重跑 orders/metrics/兩條 curve 全等、報告逐字節相同。
+> - 所有新模組（含 lookahead 測試）在系統 `python3` 無 venv 下全過；cron 路徑仍 stdlib-only。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
 | J2.1 | **完成（2026-07-21）**：vectorbt 技術評估：玩具策略驗證能否表達「每日排名換股 + 漲停不成交 + 台股成本」；不合用則自寫向量化引擎。含依賴管理決策（獨立 venv，不污染 cron 路徑） | 一頁決策記錄（採用/自寫 + 理由）：`docs/tw-backtest-engine.md`，三項硬需求 + H=5 持有 + 效能全部實測通過 |
-| J2.2 | **完成（2026-07-21）**：成本與成交規則 `tw_backtest_costs.py`（純 stdlib）：手續費 0.1425%×2（可設折扣）、證交稅 0.3%、D+1 開盤成交、漲停不買/跌停不賣、台股 tick 網格漲跌停價 | 17 項 self-check（買賣不對稱成本、折扣、tick、漲跌停價、方向性擋單）全過；回測引擎整合的擋單端到端測試通過（**MVP D4**） |
-| J2.3 | **完成（2026-07-21）**：回測引擎 `tw_backtest.py`（vectorbt）：區間、持有 H 日、Top N、進場等權重；**每換股日 import 同一個 `build_signal_snapshot()`**（含 J1.2/J1.3 特徵評分）；含 `build_features_pooled` O(N) 效能修正 | 11 項 self-check（T+1、不對稱費、決定性、選股==live、漲停擋單端到端）全過；合成 800 檔 3 年回測外推 1.2 分鐘 **< 10 分鐘 DoD**；正式 DB 實測時間留 Mac Mini |
-| J2.4 | 前視偏差測試：抽 20 個歷史日期，回測選股 == 截斷資料 live 選股；含法人時點規則驗證 | MVP D3 通過（不過則 Phase 2 不算完成） |
-| J2.5 | 績效報告：總報酬/CAGR/Sharpe/MDD/勝率/換手率/逐年分拆，vs 0050 buy-and-hold（`daily_prices` + `etf_navs` 現成） | MVP D5 通過 |
-| J2.6 | 可重現性：同參數重跑結果一致 | MVP D7 通過 |
+| J2.2 | **完成（2026-07-21）**：成本與成交規則 `tw_backtest_costs.py`（純 stdlib）：手續費 0.1425%×2（可設折扣）、證交稅 0.3%、D+1 開盤成交、漲停不買/跌停不賣、台股 tick 網格漲跌停價；正式 DB NaN `prev_close` 邊界已修 | 18 項 self-check（買賣不對稱成本、折扣、tick、漲跌停價、方向性擋單、缺價/NaN 不阻擋）全過；回測引擎整合的擋單端到端測試通過（**MVP D4**） |
+| J2.3 | **完成（2026-07-21）**：回測引擎 `tw_backtest.py`（vectorbt）：區間、持有 H 日、Top N、進場等權重；**每換股日 import 同一個 `build_signal_snapshot()`**（含 J1.2/J1.3 特徵評分）；含 `build_features_pooled` O(N) 效能修正 | 11 項 self-check（T+1、不對稱費、決定性、選股==live、漲停擋單端到端）全過；正式 DB 3 年回測 `real 39.38s` **< 10 分鐘 DoD**；JSON 存證 `/tmp/tw_backtest_3yr_20260721T1631.json` |
+| J2.4 | **完成（2026-07-21，Claude）**：前視偏差測試 `tw_backtest_lookahead.py`（純 stdlib，cron 路徑可跑）：對每個抽樣日 D，比較「完整 DB 的 `build_signal_snapshot(D)`」與「只含 D 日以前可觀測資料的**實體截斷 DB** 的 `build_signal_snapshot(D)`」。截斷邊界逐條對齊 PIT 契約（日價/排行 ≤ D、法人 < D、factor ex_date ≤ D、處置 announce ≤ D），故任一規則放寬都會讓兩者分歧。負向對照：注入 leaky gateway（多讀一天）→ 測試如實 FAIL，證明非空測 | MVP D3 通過（不過則 Phase 2 不算完成）：self-check 8 項全過 + leaky-gateway 負向對照 FAIL；正式 DB 20 日抽樣待 JoJo（runbook 見下方 J2.4–J2.6） |
+| J2.5 | **完成（2026-07-21，Claude）**：績效報告 `tw_backtest_report.py`（純 stdlib，吃 `tw_backtest.py --format json` 存下的結果檔）：總報酬/CAGR/Sharpe/MDD/勝率、**年化換手率**（買方成交額/平均權益/年，定義文件化）、**逐年分拆**（策略 vs 基準 vs 超額），誠實輸出 `BEATS`/`LOSES TO` 判決。引擎新增 `equity_curve`/`benchmark_curve` 供報告計算 | MVP D5 通過：self-check 16 項全過；正式 DB 報告待 JoJo 由三年回測 JSON 產出 |
+| J2.6 | **完成（2026-07-21，Claude）**：可重現性：引擎 self-check 斷言同參數重跑 orders/metrics/**equity_curve/benchmark_curve** 完全相同，且 J2.5 報告逐字節可重現 | MVP D7 通過：venv self-check 對應 6 項（含 report byte-identical）全過 |
 
 **Phase 2 產出 = MVP**：閉環完成。此時停下來讀報告，決定訊號值不值得繼續投入。
+
+### Mac Mini formal DB 3 年回測 smoke（2026-07-21，JoJo）
+
+- 執行環境：PR #10 merge commit `6209a32` 的乾淨 worktree，研究 venv `.venv-backtest`，正式 DB 透過 `TW_MARKET_DB` / `TW_STOCK_RANKINGS_DB` / `TW_STRONG_SIGNAL_DB` 明確指定；回測唯讀，未寫 DB。
+- self-check：`tw_backtest_costs.py --self-check` 18 項 PASS；`tw_backtest.py --self-check` 11 項 PASS；`py_compile` PASS。
+- 第一次正式回測在 `real 40.17s` 抓到 NaN `prev_close` 邊界；已修正 `blocks_buy`/`blocks_sell` 對缺價/非有限值不阻擋且不進 tick rounding。
+- 正式回測重跑成功：2023-07-21..2026-07-17，`top_n=10`、`holding_days=5`、`min_avg_turnover=50,000,000`、benchmark `0050`，`real 39.38s`。
+- 交易摘要：725 trading days、145 rebalances、745 traded symbols、2090 orders、1050 trades。
+- Metrics：total_return 0.9001611324893798、CAGR 0.38151804372401044、Sharpe 0.9829877299914453、max_drawdown -0.40093349261789113、win_rate 0.44、total_fees_paid 607628.7783468436、benchmark_total_return(0050) 2.353870320180128。
+- Sanity read：數字皆有限、不荒謬；H=5 top-10 rank rotation 的 turnover 與費用偏高但合理。v1 等權重基線在此區間扣成本後輸給 0050 buy-and-hold，J2.5 應如實報告；不要因此立刻調權重。
+- 存證：text `/tmp/tw_backtest_3yr_text_20260721T1630.txt`；JSON `/tmp/tw_backtest_3yr_20260721T1631.json`。
+
+### J2.4–J2.6 正式 DB 驗收 runbook（待 JoJo 在 Mac Mini 執行）
+
+前置：研究 venv `.venv-backtest` 已建；正式 DB 以 `TW_MARKET_DB` / `TW_STOCK_RANKINGS_DB` /
+`TW_STRONG_SIGNAL_DB` 明確指定；乾淨 worktree（避開 dirty workspace 的 unrelated changes）。
+
+1. **self-check（可在系統 python3 無 venv 跑，除 tw_backtest 需 venv）**
+   - `python3 scripts/tw_backtest_lookahead.py --self-check`（8 項）
+   - `python3 scripts/tw_backtest_report.py --self-check`（16 項）
+   - venv：`python3 scripts/tw_backtest.py --self-check`（15 項，含 J2.5/J2.6 斷言）
+   - venv：`python3 scripts/tw_backtest_costs.py --self-check`（18 項）
+   - `py_compile` 全部新/改檔。
+
+2. **J2.4 正式 DB 20 日前視抽樣（MVP D3）**——純 stdlib，不需 venv：
+   ```
+   python3 scripts/tw_backtest_lookahead.py --from 2023-07-21 --to 2026-07-17 \
+     --samples 20 --top-n 10 --min-avg-turnover 50000000 --format text
+   ```
+   期望：`all_match=True`，每個抽樣日 `OK`。任一 `FAIL` 即 lookahead 洩漏，Phase 2 不算完成——
+   把分歧日與 divergence 訊息回報，不要跳過。（每日建一個小截斷 DB，只複製約 70 交易日視窗 +
+   全量小表，應為分鐘級。）
+
+3. **J2.5 正式績效報告（MVP D5）**——由既有三年回測 JSON 直接產出（不需重跑回測）：
+   ```
+   python3 scripts/tw_backtest_report.py \
+     --result /tmp/tw_backtest_3yr_20260721T1631.json --format text
+   ```
+   （若舊 JSON 是加 `equity_curve`/`benchmark_curve` 之前的版本，先在 venv 重跑一次
+   `tw_backtest.py --from 2023-07-21 --to 2026-07-17 ... --format json` 存新 JSON 再餵報告。）
+   期望：逐年分拆 + 年化換手率 + `LOSES TO 0050` 誠實判決（本區間 v1 基線扣成本後輸 0050）。
+
+4. **J2.6 可重現性（MVP D7）**：同參數重跑回測兩次，`diff` 兩份 JSON 的 `metrics`/`equity_curve`
+   應完全相同（引擎 self-check 已在合成資料上斷言；正式 DB 再抽驗一次）。
+
+存證：把 20 日抽樣輸出、正式報告 text/JSON 存到 `/tmp` 或 `data/analysis/`，並把 metrics 摘要
+回填本節。**不要因為 v1 輸 0050 就調權重**——這是未調參等權重基線，數字先如實記錄。
 
 ---
 
