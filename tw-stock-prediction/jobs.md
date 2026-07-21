@@ -179,12 +179,22 @@
 > 28 秒完成（DoD 門檻 10 分鐘）。CAGR/Sharpe/MDD/勝率皆內建，J2.5 免手刻。依賴隔離：
 > `requirements-backtest.txt` 建獨立 venv，cron 路徑（`tw_strong_signal.py`）維持 stdlib-only
 > 不受影響。決策記錄：`docs/tw-backtest-engine.md`。
+>
+> **J2.2/J2.3 完成（2026-07-21，Claude）**：`tw_backtest_costs.py`（純 stdlib，17 項 self-check）
+> 封裝台股 tick 網格、買 0.1425%/賣 0.4425% 不對稱成本、漲停擋買/跌停擋賣。`tw_backtest.py`
+> 重寫為 vectorbt 引擎，**每換股日呼叫同一個 `build_signal_snapshot()`**（結構保證 J2.4）；
+> 進場等權重、持有到出榜才賣（每筆訂單方向明確→成本精確）；T+1 開盤成交、漲停 NaN 拒單。
+> **效能修正**：J1.2 `build_features` 原每檔掃全表 O(N²)→3 年回測外推 11 分鐘超標；新增
+> `build_features_pooled()`（一次分組 O(N)，輸出逐 byte 相同，self-check 斷言），
+> `build_signal_snapshot()` 改用它，**live 訊號與回測同時快 9.5 倍**；合成 800 檔每換股日
+> 4.47s→0.47s，3 年回測外推 70 秒 = 1.2 分鐘。cron 路徑（features/scoring/data/signal）
+> 無 venv self-check 仍全過。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
 | J2.1 | **完成（2026-07-21）**：vectorbt 技術評估：玩具策略驗證能否表達「每日排名換股 + 漲停不成交 + 台股成本」；不合用則自寫向量化引擎。含依賴管理決策（獨立 venv，不污染 cron 路徑） | 一頁決策記錄（採用/自寫 + 理由）：`docs/tw-backtest-engine.md`，三項硬需求 + H=5 持有 + 效能全部實測通過 |
-| J2.2 | 成本與成交規則：手續費 0.1425%×2（可設折扣）、證交稅 0.3%、D+1 開盤成交、漲停不買/跌停不賣 | MVP D4 通過 |
-| J2.3 | 回測引擎 `tw_backtest.py`：區間、持有 H 日、Top N、等權重；**import Phase 1 同一份特徵/評分函式** | 3 年回測 < 10 分鐘 |
+| J2.2 | **完成（2026-07-21）**：成本與成交規則 `tw_backtest_costs.py`（純 stdlib）：手續費 0.1425%×2（可設折扣）、證交稅 0.3%、D+1 開盤成交、漲停不買/跌停不賣、台股 tick 網格漲跌停價 | 17 項 self-check（買賣不對稱成本、折扣、tick、漲跌停價、方向性擋單）全過；回測引擎整合的擋單端到端測試通過（**MVP D4**） |
+| J2.3 | **完成（2026-07-21）**：回測引擎 `tw_backtest.py`（vectorbt）：區間、持有 H 日、Top N、進場等權重；**每換股日 import 同一個 `build_signal_snapshot()`**（含 J1.2/J1.3 特徵評分）；含 `build_features_pooled` O(N) 效能修正 | 11 項 self-check（T+1、不對稱費、決定性、選股==live、漲停擋單端到端）全過；合成 800 檔 3 年回測外推 1.2 分鐘 **< 10 分鐘 DoD**；正式 DB 實測時間留 Mac Mini |
 | J2.4 | 前視偏差測試：抽 20 個歷史日期，回測選股 == 截斷資料 live 選股；含法人時點規則驗證 | MVP D3 通過（不過則 Phase 2 不算完成） |
 | J2.5 | 績效報告：總報酬/CAGR/Sharpe/MDD/勝率/換手率/逐年分拆，vs 0050 buy-and-hold（`daily_prices` + `etf_navs` 現成） | MVP D5 通過 |
 | J2.6 | 可重現性：同參數重跑結果一致 | MVP D7 通過 |
