@@ -82,15 +82,25 @@
 > `data/tw_strong_signal.sqlite` 已套新版 schema 並入庫 `official_dispositions`；
 > 2026-07-20 smoke 確認 active common-stock 處置股會被 `MarketData(as_of).universe()`
 > 排除。J1.1/J1.2 現可支援 J1.3。
+>
+> **交接（2026-07-21，Claude 接手）**：J1.3/J1.4/J1.5 實作完成——`tw_strong_signal_scoring.py`
+> 新增（跨股 z-score 加權評分、缺值中性降級、`rank_top_n`/`build_reason`，13 項獨立 self-check），
+> `tw_strong_signal.py` 改為對**整個 J1.1 股票池**評分後取 Top N（而非先截斷池子再算特徵，
+> 修正了舊版「`selected=universe[:limit]`」讓 Top N 失去排序意義的問題），新增 `persist_snapshot()`
+> 落地 `predictions`/`features_cache`/`signal_runs`（獨立可寫連線、單一 transaction、
+> 同 `(as_of, symbol, signal_version)` upsert 不重複、CLI 預設不寫入避免除錯/backtest 污染正式表）
+> 與 `build_report_text()`（`--format report`，cron/Telegram 慣例）。全部本機重跑驗證：
+> `tw_backtest.py --self-check` 不受影響（`build_signal_snapshot()` 契約不變）。
+> 待 Mac Mini：對正式 DB 跑 `--persist` 完成 MVP D6（連續 5 交易日）。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
 | J1.0 | **完成（2026-07-21）**：Phase 1 盤點任務。核對 PRD/MVP/jobs/RESET_HANDOFF 與實作現況；盤點 `tw_strong_signal.py`、`tw_strong_signal_data.py`、`tw_strong_signal_features.py`、`tw_official_dispositions.py`、`schema/tw_strong_signal.sql` 是否符合 Phase 1 範圍；確認 J1.1/J1.2 已完成項、未完成項、Phase 3 延後項、測試覆蓋、資料依賴、official disposition 最小入庫邊界與不做事項 | 判定：J1.1/J1.2 可支援 J1.3。必要驗證見下方「J1.0 盤點結果」 |
 | J1.1 | **完成（2026-07-21）**：股票池模組：`security_category='common_stock'`、當日 active（`listed_date`/`delisted_date` + 當日 price row；避免用 mutable `is_active` 污染歷史）、日均成交值 ≥ 5,000 萬、最小官方 TWSE/TPEx 處置清單 schema/script + 正式 DB 入庫 + `MarketData(as_of)` 讀取排除。完整注意股、全額交割股、處置歷史回填與治理留 Phase 3 | self-check 含下市股情境（防存活者偏差）、官方處置 PIT 可見性、ETF/未上市/低流動性排除；正式 DB smoke：2026-07-20 `official_disposition_count=33`、>=5,000 萬池由 783 降至 762、移除 21 檔 active common-stock 處置股 |
 | J1.2 | **完成**：特徵計算（純函式）：5/20/60 日**還原**報酬、量比（5 日均量/60 日均量）、波動度、排行動能（`entered_top20`、`rank_delta_1d`、成交值排名變化）、法人 5 日累計淨買超/成交量比；已接 `build_signal_snapshot()`，score 留 J1.3 | 手算 fixture 驗證；2026-07-17 實際資料全市場候選 789 檔約 3.1 秒 |
-| J1.3 | 規則評分：特徵 z-score 加權合成 → Top N；權重集中一個 config；含降級路徑（排行資料缺時僅用價量+法人，PRD §10 Yahoo 風險） | 確定性測試：同輸入同輸出 |
-| J1.4 | `predictions` 落地 + `tw_strong_signal.py` 主流程：取數 → 特徵 → 評分 → 快照（股票、分數、特徵值、訊號版本號）→ Telegram-ready 摘要塊（cron 交付慣例，`docs/cron.md`） | 連續 5 交易日手動執行成功（MVP D6） |
-| J1.5 | 快照含「理由欄位」：每檔列主要得分來源，供人工覆核 | 隨機抽查合理 |
+| J1.3 | **完成（2026-07-21）**：規則評分 `tw_strong_signal_scoring.py`：特徵 z-score 加權合成 → Top N；權重集中 `FEATURE_WEIGHTS`；缺值降級為中性貢獻（0，非填補/非剔除），母體已知值 <2 檔時整體降級為 undetermined | 13 項獨立 self-check（強/弱/中/缺值候選排序、tie-break、單樣本母體、reason 一致）+ wiring 5 項（top-N 排序、rank 對應、deterministic）全過 |
+| J1.4 | **完成（2026-07-21）**：`persist_snapshot()` 落地 `predictions`/`features_cache`/`signal_runs`（獨立可寫連線、單一 transaction、upsert 冪等）；`tw_strong_signal.py` 主流程：取數 → 特徵 → 評分 → 快照 → Telegram-ready 摘要塊 `build_report_text()`（`--format report`，cron 交付慣例，`docs/cron.md`）；CLI `--persist` 預設關閉 | self-check 6 項（寫入正確性、upsert 冪等、run history 累加、report 非空）全過；**待 Mac Mini**：連續 5 交易日 `--persist` 手動執行成功（MVP D6） |
+| J1.5 | **完成（2026-07-21）**：快照含「理由欄位」`build_reason()`：`top_contributors`（依 \|contribution\| 排序）+ `missing_features`，供人工覆核 | self-check 含 shape 驗證、missing 揭露、決定性排序 |
 
 **Phase 1 產出**：每天一份可人工參考的候選清單（尚未驗證績效）。
 
@@ -116,17 +126,34 @@
 - **J1.1 blocker fixed（2026-07-21）**：正式 `data/tw_strong_signal.sqlite` 已套新版 schema；補入 `official_dispositions`、`signal_runs`、`features_cache`、`predictions`。正式入庫 smoke：TWSE 13、TPEX 22、0 skipped；其中 23 筆為 `common_stock`。排除 smoke：2026-07-20 流動性池由 783 降至 762，移除 21 檔 active common-stock 處置股（1515、1718、2434、2466、2492、3055、3090、4169、4542、4556、4707、6173、6174、6617、6831、6907、7714、8027、8096、8261、8383）。
 - 正式 DB migration 前已備份：`data/analysis/tw_strong_signal_pre_j11_schema_20260721T1122.sqlite`，SHA-256 `cc508798c4ec1935dff0aefb460487fd63fa7c05c1e4632da4caa186a38e02a4`。
 
+### J1.3–J1.5 實作結果（2026-07-21，Claude）
+
+已完成：
+
+- `scripts/tw_strong_signal_scoring.py`（新檔，純函式無 DB 存取）：`FEATURE_WEIGHTS` 單一 config（v1 等權重，含 `return_5d_adj`/`return_20d_adj`/`volume_ratio_5d_60d`/`entered_top20`/`rank_delta_1d`/`institutional_net_buy_volume_ratio_5d`，對齊 MVP.md §2.3）；`cross_sectional_zscores()`、`score_universe()`、`rank_top_n()`（score 降冪、symbol 升冪 tie-break，確保輸出不受 DB 迭代順序影響）、`build_reason()`。
+- `tw_strong_signal.py` 改寫評分路徑：**永遠對整個 `scoring_pool`（J1.1 `universe`，`symbol` 查詢時額外併入該檔）算特徵與分數，取 Top N 才切片**；修正舊版「先截斷再算特徵」的設計缺陷（原本 `selected=universe[:limit]` 只是 DB 回傳順序，不是依訊號強度排序）。
+- `persist_snapshot(snapshot, db_path=None)`：獨立可寫連線（與 `MarketData` 唯讀 ATTACH 分開）、單一 transaction 寫 `signal_runs`+`features_cache`+`predictions`；同 `(as_of, symbol, signal_version)` upsert，`signal_runs` 每次執行新增一列（執行歷史）。
+- `build_report_text(snapshot, run_id)`：`--format report`，狀態行在前、內容永不為空（`docs/cron.md` 慣例）。
+- CLI 新增 `--persist`（預設關閉，避免除錯/backtest 呼叫寫入正式表）與 `--format report`。
+
+驗證（本機重跑，非僅信任交接文件）：
+
+- `python3 scripts/tw_strong_signal_scoring.py`：13 項 PASS（強/弱/中/缺值候選排序方向、tie-break 決定性、單樣本母體不可比、reason 前 3 貢獻排序、缺值揭露）。
+- `python3 scripts/tw_strong_signal.py --self-check`：28 項 PASS（含既有 J0.6/J1.1/J1.2 斷言 + 新增 top-N 排序、rank 對應、跨呼叫 deterministic、`persist_snapshot` 寫入正確性、upsert 冪等、report 非空）。
+- `python3 scripts/tw_backtest.py --self-check`：7 項 PASS，未受影響（`build_signal_snapshot()` 外部契約不變，backtest 完全不知道內部評分邏輯換了）。
+- 端到端 CLI 冒煙（合成 DB，透過環境變數指定，模擬真實 CLI 呼叫路徑）：`--persist --format report` exit 0，`signal_runs`/`predictions` 正確寫入且 rank/score 與快照一致。
+- 手算驗證評分數學：fixture 中 1111 vs 4444 的 5/20 日報酬 z-score、缺值降級（母體已知值 <2 → 全體 None，非個別 0）、`score = Σ(weight × z)` 逐項對得上。
+
 未完成 / 待處理：
 
-- J1.1 尚未排程或自動更新 official dispositions；Phase 1 可先手動，Phase 3 再接 cron/治理。
-- J1.2 的 feature builder 本身可用，但 `score` 仍固定 0，`selected` 仍是股票池排序前 N，不是強勢股 Top N；這是 J1.3 範圍。
-- `predictions` / `signal_runs` / `features_cache` 寫入尚未做，屬 J1.4；理由欄位屬 J1.5。
-- backtest 仍是 J0.7 skeleton，只驗證 adapter/T+1 route；策略績效與成本規則仍在 Phase 2。
-- `--symbol` 單檔 debug / fixed-symbol 模式可繞過 universe，用來檢查單檔特徵；正式候選輸出應使用一般 Top N 路徑，不用 `--symbol`。
+- **Mac Mini 對正式 DB 驗證**：`--persist` 連續 5 個交易日手動執行成功（MVP D6，本機無法驗證，需真實資料庫）；`--format report` 輸出人工檢視是否合理（尤其 J1.0 盤點提到的 521 檔缺 ranking feature 的情境）。
+- backtest 仍是 J0.7 skeleton，只驗證 adapter/T+1 route；策略績效與成本規則仍在 Phase 2（J2.1 起）。
+- 權重為 v1 等權重基準，非回測調校結果；Phase 2 有真實績效數字後可回頭調整並記錄理由。
 
 下一步判定：
 
-- 可進 J1.3：規則評分、z-score/權重 config、null feature 降級策略、Top N 排序 deterministic test。
+- **Phase 1 （J1.0–J1.5）全部完成**，待 Mac Mini 跑 MVP D6 驗收後正式收尾。
+- 可進 Phase 2：J2.1 vectorbt 技術評估/自寫向量化引擎、J2.2 成本與成交規則、J2.3 回測引擎（import 同一份 J1.2/J1.3 特徵與評分函式）。
 
 ---
 
