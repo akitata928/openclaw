@@ -40,12 +40,21 @@
 > **J0.4 ✅ 完成（含 D2 抽驗）**：逐事件跨源核對 5 檔（0050 分割/4414 減資/7780 面額變更/
 > 2429 除權/2740 sparse-gap）全過；累積跨源比對 vs Yahoo Adj Close——0050 差 0.000012pp、
 > 2603 差 0.0067pp、2330 窗內 12 筆季配與實際吻合（排除整批漏抓）。**Phase 0 資料部分關閉**。
-> J0.5 部分完成（資本事件表 + run logs 已入 schema）。
+> **J0.5 ✅ 完成**：`schema/tw_strong_signal.sql` 已包含資本事件表、`adjust_factors`、
+> `ca_fetch_runs`/raw payload logs，以及 Phase 1 落地前需要的 `features_cache`、
+> `predictions`、`signal_runs`；schema 以 `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`
+> 保持可重入。
 > **J0.6 ✅ 完成**（PR #7 `tw_strong_signal_data.py`）：唯一取數入口，`as_of` 強制、四條
 > lookahead 契約（日價/排行 ≤ as_of、法人 < as_of、factor ex_date ≤ as_of、point-in-time
 > universe）、12 項 self-check + Mac Mini 實機驗證通過——2330 累積 factor 與 D2 文件逐位一致，
 > universe 2,027 檔、**≥5,000 萬流動性池 789 檔**（= Phase 1 實際選股池）。
-> 剩：J0.7 骨架、J0.8 shim 清理，然後進 Phase 1。
+> **J0.7 ✅ 完成**：`tw_strong_signal.py` / `tw_backtest.py` 骨架已接上 `MarketData(as_of)`。
+> signal contract 固定輸出 `as_of`、`trade_date`、`features`、`score`、`rank`、`signals`、
+> `data_quality`、`debug`；backtest 只 import 同一個 `build_signal_snapshot()`，並驗證 dry-run
+> adapter 與 fixed-symbol T+1 execution。Mac Mini smoke：signal self-check、backtest self-check、
+> `2026-07-17/2330` JSON、`2026-07-01..2026-07-17` dry-run / fixed-symbol 全通。
+> J0.8 ✅ 完成：workspace `scripts/tw_stock_rankings.py` 已改為 shim，指向 repo canonical script，消除雙版本漂移。
+> 接續：Phase 1 特徵工程，直接接 `build_signal_snapshot()` 與 gateway，不另開取數路徑。
 > 教訓回饋：資本事件遠不只除權息（減資、面額變更、新上市無漲跌幅、無成交參考價重設
 > 全部撞過一次）；audit 的 hardcode known-exception 清單由 `capital_events.suspend_*` 取代（收尾中）。
 
@@ -57,7 +66,7 @@
 | J0.4 | 還原價計算與驗證：還原報酬 vs 公開還原序列；分割還原後 0050 序列在 2025-06 必須連續（否則基準報酬在該日出現假暴跌） | MVP D2 通過 |
 | J0.5 | `schema/tw_strong_signal.sql`：`dividends`、`adjust_factors`、`features_cache`、`predictions`、`signal_runs`（比照既有 `fetch_runs` 模式） | schema 進 Git；`init_db` 可重入 |
 | J0.6 | Point-in-time 取數介面：ATTACH market + rankings 兩庫，`as_of` 強制；含法人資料時點規則（MVP §6 保守版） | 測試：`as_of=D` 取不到 D+1 資料；法人只到 D-1 |
-| J0.7 | 專案骨架：`tw_strong_signal.py` / `tw_backtest.py` 空殼 + 測試框架（比照 repo 現有腳本自帶 `--test-mode` 慣例，或加 pytest——擇一記錄決策） | 空跑綠燈 |
+| J0.7 | 專案骨架：`tw_strong_signal.py` / `tw_backtest.py` 骨架 + stdlib `--self-check`（不引 pytest）；signal/backtest 共用 `build_signal_snapshot()`，只透過 `MarketData(as_of)` 取數 | signal contract、PIT/no-lookahead、backtest adapter、deterministic fixed-symbol smoke 全綠 |
 | J0.8 | 順手清理（PRD §2.4）：workspace `scripts/tw_stock_rankings.py` 改為 shim，消除雙版本 | 兩處行為一致 |
 
 **Phase 0 產出**：驗證過的歷史資料 + 還原價 + 取數介面。停在這裡，資料庫本身已升級。
@@ -69,15 +78,55 @@
 目標：每日可手動產出 Top10 強勢股候選清單。刻意用簡單規則當基線。
 （法人與排行動能特徵直接進 v1，因為資料現成——修正原規劃把法人排到 Phase 3 的安排。）
 
+> **狀態校正（2026-07-21）**：J1.0 盤點完成，J1.1 blocker 已修復。正式
+> `data/tw_strong_signal.sqlite` 已套新版 schema 並入庫 `official_dispositions`；
+> 2026-07-20 smoke 確認 active common-stock 處置股會被 `MarketData(as_of).universe()`
+> 排除。J1.1/J1.2 現可支援 J1.3。
+
 | Job | 內容 | DoD |
 |-----|------|-----|
-| J1.1 | 股票池模組：`security_category='common_stock'`、當日 active（`listed_date`/`delisted_date`/`is_active`）、日均成交值 ≥ 5,000 萬、「連續漲停」近似剔除處置股 | 單元測試含下市股情境（防存活者偏差） |
-| J1.2 | 特徵計算（純函式）：5/20/60 日**還原**報酬、量比（5 日均量/60 日均量）、波動度、排行動能（`entered_top20`、`rank_delta_1d`、成交值排名變化）、法人 5 日累計淨買超/成交量比 | 2–3 檔手算樣本驗證；全市場單日 < 5 分鐘（stdlib + SQL） |
+| J1.0 | **完成（2026-07-21）**：Phase 1 盤點任務。核對 PRD/MVP/jobs/RESET_HANDOFF 與實作現況；盤點 `tw_strong_signal.py`、`tw_strong_signal_data.py`、`tw_strong_signal_features.py`、`tw_official_dispositions.py`、`schema/tw_strong_signal.sql` 是否符合 Phase 1 範圍；確認 J1.1/J1.2 已完成項、未完成項、Phase 3 延後項、測試覆蓋、資料依賴、official disposition 最小入庫邊界與不做事項 | 判定：J1.1/J1.2 可支援 J1.3。必要驗證見下方「J1.0 盤點結果」 |
+| J1.1 | **完成（2026-07-21）**：股票池模組：`security_category='common_stock'`、當日 active（`listed_date`/`delisted_date` + 當日 price row；避免用 mutable `is_active` 污染歷史）、日均成交值 ≥ 5,000 萬、最小官方 TWSE/TPEx 處置清單 schema/script + 正式 DB 入庫 + `MarketData(as_of)` 讀取排除。完整注意股、全額交割股、處置歷史回填與治理留 Phase 3 | self-check 含下市股情境（防存活者偏差）、官方處置 PIT 可見性、ETF/未上市/低流動性排除；正式 DB smoke：2026-07-20 `official_disposition_count=33`、>=5,000 萬池由 783 降至 762、移除 21 檔 active common-stock 處置股 |
+| J1.2 | **完成**：特徵計算（純函式）：5/20/60 日**還原**報酬、量比（5 日均量/60 日均量）、波動度、排行動能（`entered_top20`、`rank_delta_1d`、成交值排名變化）、法人 5 日累計淨買超/成交量比；已接 `build_signal_snapshot()`，score 留 J1.3 | 手算 fixture 驗證；2026-07-17 實際資料全市場候選 789 檔約 3.1 秒 |
 | J1.3 | 規則評分：特徵 z-score 加權合成 → Top N；權重集中一個 config；含降級路徑（排行資料缺時僅用價量+法人，PRD §10 Yahoo 風險） | 確定性測試：同輸入同輸出 |
 | J1.4 | `predictions` 落地 + `tw_strong_signal.py` 主流程：取數 → 特徵 → 評分 → 快照（股票、分數、特徵值、訊號版本號）→ Telegram-ready 摘要塊（cron 交付慣例，`docs/cron.md`） | 連續 5 交易日手動執行成功（MVP D6） |
 | J1.5 | 快照含「理由欄位」：每檔列主要得分來源，供人工覆核 | 隨機抽查合理 |
 
 **Phase 1 產出**：每天一份可人工參考的候選清單（尚未驗證績效）。
+
+### J1.0 盤點結果（2026-07-21）
+
+驗證已過：
+
+- `python3 scripts/tw_official_dispositions.py --self-check`
+- `python3 scripts/tw_strong_signal_features.py`
+- `python3 scripts/tw_strong_signal_data.py --self-check`
+- `python3 scripts/tw_strong_signal.py --self-check`
+- `python3 scripts/tw_backtest.py --self-check`
+- `python3 -m py_compile scripts/tw_official_dispositions.py scripts/tw_strong_signal_data.py scripts/tw_strong_signal_features.py scripts/tw_strong_signal.py scripts/tw_backtest.py`
+
+實機 smoke（2026-07-20）：
+
+- `tw_strong_signal_data.py --as-of 2026-07-20 --symbol 2330`：latest trading day 2026-07-20；common-stock universe 2,012；>=5,000 萬池 783；法人最大日 2026-07-17；ranking rows 1,400。
+- `tw_strong_signal.py --as-of 2026-07-20 --limit 783 --format json`：全池 783 檔、`no_lookahead_ok=true`；有 ranking feature 262 檔、缺 ranking feature 521 檔；法人缺 1 檔；`return_60d_adj`/`volume_ratio_5d_60d` 缺 3 檔、`volatility_20d_adj` 缺 2 檔、`turnover_rank_delta_1d` 缺 605 檔。ranking 缺口多數是設計預期：Yahoo 快照只留各榜前 100，J1.3 必須把 null/degrade 當正式輸入處理。
+- 官方處置 temp DB smoke：`tw_official_dispositions.py --fetch-all --start-date 2026-07-20 --end-date 2026-07-20 --db /tmp/tw_official_dispositions_inventory.sqlite` 成功，TWSE 13、TPEX 22、0 skipped；其中 23 筆為 `common_stock`。
+
+已修復：
+
+- **J1.1 blocker fixed（2026-07-21）**：正式 `data/tw_strong_signal.sqlite` 已套新版 schema；補入 `official_dispositions`、`signal_runs`、`features_cache`、`predictions`。正式入庫 smoke：TWSE 13、TPEX 22、0 skipped；其中 23 筆為 `common_stock`。排除 smoke：2026-07-20 流動性池由 783 降至 762，移除 21 檔 active common-stock 處置股（1515、1718、2434、2466、2492、3055、3090、4169、4542、4556、4707、6173、6174、6617、6831、6907、7714、8027、8096、8261、8383）。
+- 正式 DB migration 前已備份：`data/analysis/tw_strong_signal_pre_j11_schema_20260721T1122.sqlite`，SHA-256 `cc508798c4ec1935dff0aefb460487fd63fa7c05c1e4632da4caa186a38e02a4`。
+
+未完成 / 待處理：
+
+- J1.1 尚未排程或自動更新 official dispositions；Phase 1 可先手動，Phase 3 再接 cron/治理。
+- J1.2 的 feature builder 本身可用，但 `score` 仍固定 0，`selected` 仍是股票池排序前 N，不是強勢股 Top N；這是 J1.3 範圍。
+- `predictions` / `signal_runs` / `features_cache` 寫入尚未做，屬 J1.4；理由欄位屬 J1.5。
+- backtest 仍是 J0.7 skeleton，只驗證 adapter/T+1 route；策略績效與成本規則仍在 Phase 2。
+- `--symbol` 單檔 debug / fixed-symbol 模式可繞過 universe，用來檢查單檔特徵；正式候選輸出應使用一般 Top N 路徑，不用 `--symbol`。
+
+下一步判定：
+
+- 可進 J1.3：規則評分、z-score/權重 config、null feature 降級策略、Top N 排序 deterministic test。
 
 ---
 
