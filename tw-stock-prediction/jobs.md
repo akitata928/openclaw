@@ -91,7 +91,7 @@
 > 同 `(as_of, symbol, signal_version)` upsert 不重複、CLI 預設不寫入避免除錯/backtest 污染正式表）
 > 與 `build_report_text()`（`--format report`，cron/Telegram 慣例）。全部本機重跑驗證：
 > `tw_backtest.py --self-check` 不受影響（`build_signal_snapshot()` 契約不變）。
-> 待 Mac Mini：對正式 DB 跑 `--persist` 完成 MVP D6（連續 5 交易日）。
+> Mac Mini D6 已驗收：對正式 DB 連續 5 個交易日跑 `--persist --format report` 成功。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
@@ -99,7 +99,7 @@
 | J1.1 | **完成（2026-07-21）**：股票池模組：`security_category='common_stock'`、當日 active（`listed_date`/`delisted_date` + 當日 price row；避免用 mutable `is_active` 污染歷史）、日均成交值 ≥ 5,000 萬、最小官方 TWSE/TPEx 處置清單 schema/script + 正式 DB 入庫 + `MarketData(as_of)` 讀取排除。完整注意股、全額交割股、處置歷史回填與治理留 Phase 3 | self-check 含下市股情境（防存活者偏差）、官方處置 PIT 可見性、ETF/未上市/低流動性排除；正式 DB smoke：2026-07-20 `official_disposition_count=33`、>=5,000 萬池由 783 降至 762、移除 21 檔 active common-stock 處置股 |
 | J1.2 | **完成**：特徵計算（純函式）：5/20/60 日**還原**報酬、量比（5 日均量/60 日均量）、波動度、排行動能（`entered_top20`、`rank_delta_1d`、成交值排名變化）、法人 5 日累計淨買超/成交量比；已接 `build_signal_snapshot()`，score 留 J1.3 | 手算 fixture 驗證；2026-07-17 實際資料全市場候選 789 檔約 3.1 秒 |
 | J1.3 | **完成（2026-07-21）**：規則評分 `tw_strong_signal_scoring.py`：特徵 z-score 加權合成 → Top N；權重集中 `FEATURE_WEIGHTS`；缺值降級為中性貢獻（0，非填補/非剔除），母體已知值 <2 檔時整體降級為 undetermined | 13 項獨立 self-check（強/弱/中/缺值候選排序、tie-break、單樣本母體、reason 一致）+ wiring 5 項（top-N 排序、rank 對應、deterministic）全過 |
-| J1.4 | **完成（2026-07-21）**：`persist_snapshot()` 落地 `predictions`/`features_cache`/`signal_runs`（獨立可寫連線、單一 transaction、upsert 冪等）；`tw_strong_signal.py` 主流程：取數 → 特徵 → 評分 → 快照 → Telegram-ready 摘要塊 `build_report_text()`（`--format report`，cron 交付慣例，`docs/cron.md`）；CLI `--persist` 預設關閉 | self-check 6 項（寫入正確性、upsert 冪等、run history 累加、report 非空）全過；**待 Mac Mini**：連續 5 交易日 `--persist` 手動執行成功（MVP D6） |
+| J1.4 | **完成（2026-07-21）**：`persist_snapshot()` 落地 `predictions`/`features_cache`/`signal_runs`（獨立可寫連線、單一 transaction、upsert 冪等）；`tw_strong_signal.py` 主流程：取數 → 特徵 → 評分 → 快照 → Telegram-ready 摘要塊 `build_report_text()`（`--format report`，cron 交付慣例，`docs/cron.md`）；CLI `--persist` 預設關閉 | self-check 6 項（寫入正確性、upsert 冪等、run history 累加、report 非空）全過；Mac Mini formal DB D6：2026-07-14/15/16/17/20 連續 5 交易日 `--persist --format report` 手動執行成功 |
 | J1.5 | **完成（2026-07-21）**：快照含「理由欄位」`build_reason()`：`top_contributors`（依 \|contribution\| 排序）+ `missing_features`，供人工覆核 | self-check 含 shape 驗證、missing 揭露、決定性排序 |
 
 **Phase 1 產出**：每天一份可人工參考的候選清單（尚未驗證績效）。
@@ -144,15 +144,26 @@
 - 端到端 CLI 冒煙（合成 DB，透過環境變數指定，模擬真實 CLI 呼叫路徑）：`--persist --format report` exit 0，`signal_runs`/`predictions` 正確寫入且 rank/score 與快照一致。
 - 手算驗證評分數學：fixture 中 1111 vs 4444 的 5/20 日報酬 z-score、缺值降級（母體已知值 <2 → 全體 None，非個別 0）、`score = Σ(weight × z)` 逐項對得上。
 
+### Mac Mini MVP D6 驗收（2026-07-21，JoJo）
+
+正式 DB 驗收：
+
+- D6 前備份：`data/analysis/tw_strong_signal_pre_d6_persist_20260721T1330.sqlite`，SHA-256 `f3809f759fa02b4130448ec8ffa89cfae463740046cac70b2494505785e07ba0`。
+- 使用 PR #8 merge commit `3eb41af` 的乾淨 worktree 執行，避免本機 dirty workspace 的 unrelated changes 影響驗收。
+- 自測：`tw_strong_signal.py --self-check` 28 項 PASS；`tw_strong_signal_scoring.py` 13 項 PASS；`tw_backtest.py --self-check` 7 項 PASS；`py_compile` PASS。
+- 最近 5 個交易日 `--persist --format report` 全成功：2026-07-14、2026-07-15、2026-07-16、2026-07-17、2026-07-20。
+- 正式 DB 寫入結果：`signal_runs=5`、`predictions=50`、`features_cache=50`；每個 as_of 都有 rank 1–10、`status=ok`、`prediction_count=10`。
+- Report 輸出可讀且非空；每檔含 score、top contributors、missing feature 揭露。2026-07-20 Top 10：6505、6243、2634、4541、1810、2527、1232、6957、8039、6213。
+- `reason_json` shape 驗證通過：50 筆皆含 `top_contributors` 與 `missing_features`；其中 27 筆揭露 missing features。
+
 未完成 / 待處理：
 
-- **Mac Mini 對正式 DB 驗證**：`--persist` 連續 5 個交易日手動執行成功（MVP D6，本機無法驗證，需真實資料庫）；`--format report` 輸出人工檢視是否合理（尤其 J1.0 盤點提到的 521 檔缺 ranking feature 的情境）。
 - backtest 仍是 J0.7 skeleton，只驗證 adapter/T+1 route；策略績效與成本規則仍在 Phase 2（J2.1 起）。
 - 權重為 v1 等權重基準，非回測調校結果；Phase 2 有真實績效數字後可回頭調整並記錄理由。
 
 下一步判定：
 
-- **Phase 1 （J1.0–J1.5）全部完成**，待 Mac Mini 跑 MVP D6 驗收後正式收尾。
+- **Phase 1（J1.0–J1.5）全部完成，MVP D6 已通過**。
 - 可進 Phase 2：J2.1 vectorbt 技術評估/自寫向量化引擎、J2.2 成本與成交規則、J2.3 回測引擎（import 同一份 J1.2/J1.3 特徵與評分函式）。
 
 ---
