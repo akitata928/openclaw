@@ -210,9 +210,9 @@
 | J2.1 | **完成（2026-07-21）**：vectorbt 技術評估：玩具策略驗證能否表達「每日排名換股 + 漲停不成交 + 台股成本」；不合用則自寫向量化引擎。含依賴管理決策（獨立 venv，不污染 cron 路徑） | 一頁決策記錄（採用/自寫 + 理由）：`docs/tw-backtest-engine.md`，三項硬需求 + H=5 持有 + 效能全部實測通過 |
 | J2.2 | **完成（2026-07-21）**：成本與成交規則 `tw_backtest_costs.py`（純 stdlib）：手續費 0.1425%×2（可設折扣）、證交稅 0.3%、D+1 開盤成交、漲停不買/跌停不賣、台股 tick 網格漲跌停價；正式 DB NaN `prev_close` 邊界已修 | 18 項 self-check（買賣不對稱成本、折扣、tick、漲跌停價、方向性擋單、缺價/NaN 不阻擋）全過；回測引擎整合的擋單端到端測試通過（**MVP D4**） |
 | J2.3 | **完成（2026-07-21）**：回測引擎 `tw_backtest.py`（vectorbt）：區間、持有 H 日、Top N、進場等權重；**每換股日 import 同一個 `build_signal_snapshot()`**（含 J1.2/J1.3 特徵評分）；含 `build_features_pooled` O(N) 效能修正 | 11 項 self-check（T+1、不對稱費、決定性、選股==live、漲停擋單端到端）全過；正式 DB 3 年回測 `real 39.38s` **< 10 分鐘 DoD**；JSON 存證 `/tmp/tw_backtest_3yr_20260721T1631.json` |
-| J2.4 | **完成（2026-07-21，Claude）**：前視偏差測試 `tw_backtest_lookahead.py`（純 stdlib，cron 路徑可跑）：對每個抽樣日 D，比較「完整 DB 的 `build_signal_snapshot(D)`」與「只含 D 日以前可觀測資料的**實體截斷 DB** 的 `build_signal_snapshot(D)`」。截斷邊界逐條對齊 PIT 契約（日價/排行 ≤ D、法人 < D、factor ex_date ≤ D、處置 announce ≤ D），故任一規則放寬都會讓兩者分歧。負向對照：注入 leaky gateway（多讀一天）→ 測試如實 FAIL，證明非空測 | MVP D3 通過（不過則 Phase 2 不算完成）：self-check 8 項全過 + leaky-gateway 負向對照 FAIL；正式 DB 20 日抽樣待 JoJo（runbook 見下方 J2.4–J2.6） |
-| J2.5 | **完成（2026-07-21，Claude）**：績效報告 `tw_backtest_report.py`（純 stdlib，吃 `tw_backtest.py --format json` 存下的結果檔）：總報酬/CAGR/Sharpe/MDD/勝率、**年化換手率**（買方成交額/平均權益/年，定義文件化）、**逐年分拆**（策略 vs 基準 vs 超額），誠實輸出 `BEATS`/`LOSES TO` 判決。引擎新增 `equity_curve`/`benchmark_curve` 供報告計算 | MVP D5 通過：self-check 16 項全過；正式 DB 報告待 JoJo 由三年回測 JSON 產出 |
-| J2.6 | **完成（2026-07-21，Claude）**：可重現性：引擎 self-check 斷言同參數重跑 orders/metrics/**equity_curve/benchmark_curve** 完全相同，且 J2.5 報告逐字節可重現 | MVP D7 通過：venv self-check 對應 6 項（含 report byte-identical）全過 |
+| J2.4 | **完成（2026-07-21，Claude + JoJo formal DB）**：前視偏差測試 `tw_backtest_lookahead.py`（純 stdlib，cron 路徑可跑）：對每個抽樣日 D，比較「完整 DB 的 `build_signal_snapshot(D)`」與「只含 D 日以前可觀測資料的**實體截斷 DB** 的 `build_signal_snapshot(D)`」。截斷邊界逐條對齊 PIT 契約（日價/排行 ≤ D、法人 < D、factor ex_date ≤ D、處置 announce ≤ D），故任一規則放寬都會讓兩者分歧。負向對照：注入 leaky gateway（多讀一天）→ 測試如實 FAIL，證明非空測 | **MVP D3 通過**：self-check 8 項全過 + leaky-gateway 負向對照 FAIL；Mac Mini formal DB 20 日抽樣 matched=20、`all_match=True`，全部 OK |
+| J2.5 | **完成（2026-07-21，Claude + JoJo formal DB）**：績效報告 `tw_backtest_report.py`（純 stdlib，吃 `tw_backtest.py --format json` 存下的結果檔）：總報酬/CAGR/Sharpe/MDD/勝率、**年化換手率**（買方成交額/平均權益/年，定義文件化）、**逐年分拆**（策略 vs 基準 vs 超額），誠實輸出 `BEATS`/`LOSES TO` 判決。引擎新增 `equity_curve`/`benchmark_curve` 供報告計算 | **MVP D5 通過**：self-check 16 項全過；formal DB 報告產出：total_return +90.02%、CAGR +38.15%、Sharpe 0.98、MaxDD -40.09%、annual_turnover 31.89x、`LOSES TO 0050` |
+| J2.6 | **完成（2026-07-21，Claude + JoJo formal DB）**：可重現性：引擎 self-check 斷言同參數重跑 orders/metrics/**equity_curve/benchmark_curve** 完全相同，且 J2.5 報告逐字節可重現 | **MVP D7 通過**：venv self-check 對應 6 項（含 report byte-identical）全過；formal DB 兩次重跑 `metrics`/`equity_curve`/`benchmark_curve` 完全相同 |
 
 **Phase 2 產出 = MVP**：閉環完成。此時停下來讀報告，決定訊號值不值得繼續投入。
 
@@ -227,41 +227,45 @@
 - Sanity read：數字皆有限、不荒謬；H=5 top-10 rank rotation 的 turnover 與費用偏高但合理。v1 等權重基線在此區間扣成本後輸給 0050 buy-and-hold，J2.5 應如實報告；不要因此立刻調權重。
 - 存證：text `/tmp/tw_backtest_3yr_text_20260721T1630.txt`；JSON `/tmp/tw_backtest_3yr_20260721T1631.json`。
 
-### J2.4–J2.6 正式 DB 驗收 runbook（待 JoJo 在 Mac Mini 執行）
+### J2.4–J2.6 正式 DB 驗收（2026-07-21，JoJo）
 
-前置：研究 venv `.venv-backtest` 已建；正式 DB 以 `TW_MARKET_DB` / `TW_STOCK_RANKINGS_DB` /
-`TW_STRONG_SIGNAL_DB` 明確指定；乾淨 worktree（避開 dirty workspace 的 unrelated changes）。
+前置：使用 PR #11 後 main `ff62182` 的乾淨 worktree；研究 venv `.venv-backtest` 已建；正式 DB 以
+`TW_MARKET_DB` / `TW_STOCK_RANKINGS_DB` / `TW_STRONG_SIGNAL_DB` 明確指定；回測唯讀，未寫 DB，未備份。
 
 1. **self-check（可在系統 python3 無 venv 跑，除 tw_backtest 需 venv）**
-   - `python3 scripts/tw_backtest_lookahead.py --self-check`（8 項）
-   - `python3 scripts/tw_backtest_report.py --self-check`（16 項）
-   - venv：`python3 scripts/tw_backtest.py --self-check`（15 項，含 J2.5/J2.6 斷言）
-   - venv：`python3 scripts/tw_backtest_costs.py --self-check`（18 項）
-   - `py_compile` 全部新/改檔。
+   - PASS：`python3 scripts/tw_backtest_lookahead.py --self-check`（8 項）
+   - PASS：`python3 scripts/tw_backtest_report.py --self-check`（16 項）
+   - PASS：venv `python3 scripts/tw_backtest.py --self-check`（15 項，含 J2.5/J2.6 斷言）
+   - PASS：venv `python3 scripts/tw_backtest_costs.py --self-check`（18 項）
+   - PASS：`py_compile` 全部新/改檔。
 
 2. **J2.4 正式 DB 20 日前視抽樣（MVP D3）**——純 stdlib，不需 venv：
    ```
    python3 scripts/tw_backtest_lookahead.py --from 2023-07-21 --to 2026-07-17 \
      --samples 20 --top-n 10 --min-avg-turnover 50000000 --format text
    ```
-   期望：`all_match=True`，每個抽樣日 `OK`。任一 `FAIL` 即 lookahead 洩漏，Phase 2 不算完成——
-   把分歧日與 divergence 訊息回報，不要跳過。（每日建一個小截斷 DB，只複製約 70 交易日視窗 +
-   全量小表，應為分鐘級。）
+   結果：`lookahead check 2023-07-21..2026-07-17 dates=20 matched=20 all_match=True`，每個抽樣日
+   皆 `OK`。存證：`/tmp/tw_backtest_lookahead_20_20260721T2242.txt`。
 
 3. **J2.5 正式績效報告（MVP D5）**——由既有三年回測 JSON 直接產出（不需重跑回測）：
-   ```
-   python3 scripts/tw_backtest_report.py \
-     --result /tmp/tw_backtest_3yr_20260721T1631.json --format text
-   ```
-   （若舊 JSON 是加 `equity_curve`/`benchmark_curve` 之前的版本，先在 venv 重跑一次
-   `tw_backtest.py --from 2023-07-21 --to 2026-07-17 ... --format json` 存新 JSON 再餵報告。）
-   期望：逐年分拆 + 年化換手率 + `LOSES TO 0050` 誠實判決（本區間 v1 基線扣成本後輸 0050）。
+   舊 JSON 無 `equity_curve`/`benchmark_curve`，已用 PR #11 引擎重跑新 JSON：
+   `/tmp/tw_backtest_3yr_pr11_a_20260721T2252.json`（`real 41.70s`）。
+   正式報告存證：text `/tmp/tw_backtest_report_pr11_20260721T2253.txt`；JSON
+   `/tmp/tw_backtest_report_pr11_20260721T2253.json`。
+   報告摘要：total_return +90.02%、CAGR +38.15%、Sharpe 0.98、MaxDD -40.09%、win_rate 44.0%、
+   annual_turnover 31.89x、fees_paid 607,629、benchmark 0050 total_return +235.39%、strategy excess
+   -145.37%，verdict `strategy LOSES TO 0050 buy-and-hold after costs`。
+   逐年分拆：2023 -10.42% / +6.49% / -16.91%；2024 +20.26% / +48.64% / -28.39%；
+   2025 -0.57% / +36.86% / -37.43%；2026 +77.40% / +54.82% / +22.58%
+   （strategy / benchmark / excess）。
 
 4. **J2.6 可重現性（MVP D7）**：同參數重跑回測兩次，`diff` 兩份 JSON 的 `metrics`/`equity_curve`
    應完全相同（引擎 self-check 已在合成資料上斷言；正式 DB 再抽驗一次）。
+   結果：第二份 JSON `/tmp/tw_backtest_3yr_pr11_b_20260721T2254.json`（`real 37.54s`）；兩份 JSON 的
+   `metrics`、`equity_curve`（725 點）、`benchmark_curve`（720 點）完全相同。
 
-存證：把 20 日抽樣輸出、正式報告 text/JSON 存到 `/tmp` 或 `data/analysis/`，並把 metrics 摘要
-回填本節。**不要因為 v1 輸 0050 就調權重**——這是未調參等權重基線，數字先如實記錄。
+結論：**Phase 2 J2.4/J2.5/J2.6 正式 DB 驗收通過，MVP D3/D5/D7 通過，Phase 2 MVP 閉環完成**。
+**不要因為 v1 輸 0050 就調權重**——這是未調參等權重基線，數字先如實記錄。
 
 ---
 
@@ -270,9 +274,24 @@
 目標：接上既有 OpenClaw cron/Telegram 體系做到零人工，並補次要資料缺口。
 （排程、重試、Telegram 回報模式已存在——本 Phase 是「加一條資料線」，不是建基礎設施。）
 
+> **進度（2026-07-21，Claude）**：J3.1 程式/docs 就緒——排程定為**早上 08:00（Tue–Sat）**。
+> 訂正一個實質 bug：cron 預設若用「今天」當 as_of,會與回測不一致——`build_signal_snapshot(as_of=D)`
+> 把法人界在 `< D`,用 `as_of=今天`（晚於 trade_date D）會把 D 當天那筆法人吃進視窗,和回測在
+> trade_date D 的 rebalance 分歧,破壞 J2.4 保護的 live==backtest 契約。改法:`tw_strong_signal.py`
+> 新增 `default_as_of()` = **最新已入庫交易日**（非牆鐘日期），CLI `--as-of` 省略時用它。
+> 08:00 時最新已入庫交易日 = 剛完成的那場 D（昨日；價/法人 06:00 入、排行 D 日 14:00 入,
+> 三者對齊 trade_date D）,訊號趕在**今日 09:00 開盤前**交付、可執行,精準對齊回測
+> 「D 收盤出訊號→D+1 開盤成交」。17:00 為何不行:D 的價要 D+1 06:00 才入庫,17:00 只能產
+> 「上一場」清單、慢一個交易日且對不上 T+1 執行（同日晚間補價是未來 pipeline 選項,現不假設）。
+> 法人維持保守 D-1。cron note 已寫入 `docs/cron.md`（`daily_tw_strong_signal_0800`）。
+> 本機驗證：`--self-check` 28 項全過；`default_as_of()` 對 fixture DB 回最新交易日 2025-01-09,
+> 且 `live(預設) == backtest(as_of=trade_date)` 為 True、法人落在 D-1。**待 JoJo**：Mac Mini
+> gateway 註冊 `daily_tw_strong_signal_0800` 並 force-run 一次證本地 shell 路徑,再連續 10
+> 交易日零人工（DoD）。
+
 | Job | 內容 | DoD |
 |-----|------|-----|
-| J3.1 | 新增 cron job（建議 `daily_tw_strong_signal_1700`，在 06:00/12:00 資料更新與 14:00 排行之後；Gateway `command` payload，遵循 `docs/cron.md` 安全規範與非空摘要交付規則） | 連續 10 交易日零人工（PRD 成功指標）；cron note 進 docs |
+| J3.1 | **程式/docs 就緒（2026-07-21，Claude）；待 JoJo 註冊+force-run**：新增 cron job `daily_tw_strong_signal_0800`（早上 08:00 Tue–Sat，在 06:00 nextday 補價後、09:00 開盤前；Gateway `command` payload = `python3 scripts/tw_strong_signal.py --persist --format report`，遵循 `docs/cron.md` 安全規範與非空摘要交付規則）；`--as-of` 預設**最新已入庫交易日**（`default_as_of()`，非牆鐘今日，確保 live==backtest） | 連續 10 交易日零人工（PRD 成功指標）；cron note 進 docs（✅ docs 已進） |
 | J3.2 | 失敗處理：依賴資料未就緒（`daily_update_runs` 非 ok）時 skip-with-notice；比照既有 primary/retry 兩段式模式加重試 slot | 人為斷資料演練：收到告警且隔日自動補齊 |
 | J3.3 | 法人時點規則放寬：cron 固定 17:00 後跑則 D 日法人可用；改規則 + 重跑前視測試 + 回測對照 | 前視測試通過；對照報告落地 |
 | J3.4 | 融資融券餘額入庫（TWSE/TPEX 官方或 FinMind；PRD G2） | 回填 ≥ 1 年，品質檢查通過 |
