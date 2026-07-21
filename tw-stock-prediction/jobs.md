@@ -288,11 +288,25 @@
 > 且 `live(預設) == backtest(as_of=trade_date)` 為 True、法人落在 D-1。**待 JoJo**：Mac Mini
 > gateway 註冊 `daily_tw_strong_signal_0800` 並 force-run 一次證本地 shell 路徑,再連續 10
 > 交易日零人工（DoD）。
+>
+> **J3.1 force-run 通過（2026-07-21，JoJo）**：`daily_tw_strong_signal_0800`（`0 8 * * 2-6`
+> Asia/Taipei）已在 Mac Mini 註冊,force-run `ok`、Telegram delivered。關鍵驗證:force-run 在
+> **週二 07-21** 跑,as_of=**07-20（週一,最新已入庫交易日,非牆鐘今日）**,法人落 D-1(07-17)——
+> `default_as_of()` 修正在正式環境生效、live==backtest 保住。Top 10 與 D6 手動 persist 的 07-20
+> 清單**逐檔相同**(6505/6243/2634/4541/1810/2527/1232/6957/8039/6213);upsert 冪等確認
+> (predictions 維持 50、run_id→6、signal_runs 5→6)。現進 10 交易日零人工觀察期。
+>
+> **J3.2 程式/docs 就緒（2026-07-21，Claude）**：cron 依賴失敗處理。daily 模式先查
+> `daily_update_runs`:最新 expected_trade_date 無 `ok`→`SKIPPED (data-not-ready)` 告警且不寫入
+> (避免發過期/半載清單);已產出當日→`SKIPPED (already-produced)`,讓 13:00 retry 對 08:00 primary
+> 冪等。gate 只在 daily 模式(顯式 `--as-of`／backtest 不受影響),fail-open(無表/無 DB 時照跑,
+> 只在能正向證明未就緒時才擋)。docs 新增 `daily_tw_strong_signal_1300_retry`。self-check 36 項 +
+> main() 三情境端到端全過。**待 JoJo**:註冊 1300 retry slot、做一次人為斷資料演練(收告警+隔日自動補齊)。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
 | J3.1 | **程式/docs 就緒（2026-07-21，Claude）；待 JoJo 註冊+force-run**：新增 cron job `daily_tw_strong_signal_0800`（早上 08:00 Tue–Sat，在 06:00 nextday 補價後、09:00 開盤前；Gateway `command` payload = `python3 scripts/tw_strong_signal.py --persist --format report`，遵循 `docs/cron.md` 安全規範與非空摘要交付規則）；`--as-of` 預設**最新已入庫交易日**（`default_as_of()`，非牆鐘今日，確保 live==backtest） | 連續 10 交易日零人工（PRD 成功指標）；cron note 進 docs（✅ docs 已進） |
-| J3.2 | 失敗處理：依賴資料未就緒（`daily_update_runs` 非 ok）時 skip-with-notice；比照既有 primary/retry 兩段式模式加重試 slot | 人為斷資料演練：收到告警且隔日自動補齊 |
+| J3.2 | **程式/docs 就緒（2026-07-21，Claude）；待 JoJo 註冊 retry slot + 斷資料演練**：失敗處理——`tw_strong_signal.py` daily 模式（無 `--as-of`）先查 `daily_update_runs`：最新 expected_trade_date 無 `ok` 列（06:00 補價失敗/incomplete）→ `SKIPPED (data-not-ready)` 告警且不寫入；已產出當日（`signal_runs` 已有成功列）→ `SKIPPED (already-produced)`，讓 13:00 retry 對 08:00 primary 冪等。兩種 skip 皆交付非空摘要、gate 只在 daily 模式（顯式 `--as-of` 不受影響、backtest 不受影響）。新增 retry job `daily_tw_strong_signal_1300_retry`（同指令,比照 market primary/retry） | 人為斷資料演練：收到告警且隔日自動補齊。self-check 36 項（含 readiness fail-open/ok/incomplete/skipped-retry、already-produced、skip report）+ main() 三情境端到端（not-ready skip 不寫入／ready+fresh 寫入／already-produced retry 不重覆）全過 |
 | J3.3 | 法人時點規則放寬：cron 固定 17:00 後跑則 D 日法人可用；改規則 + 重跑前視測試 + 回測對照 | 前視測試通過；對照報告落地 |
 | J3.4 | 融資融券餘額入庫（TWSE/TPEX 官方或 FinMind；PRD G2） | 回填 ≥ 1 年，品質檢查通過 |
 | J3.5 | 處置股/注意股清單入庫（PRD G3），股票池改用真實清單 | 取代「連續漲停」近似 |
