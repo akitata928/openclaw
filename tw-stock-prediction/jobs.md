@@ -302,12 +302,57 @@
 > 冪等。gate 只在 daily 模式(顯式 `--as-of`／backtest 不受影響),fail-open(無表/無 DB 時照跑,
 > 只在能正向證明未就緒時才擋)。docs 新增 `daily_tw_strong_signal_1300_retry`。self-check 36 項 +
 > main() 三情境端到端全過。**待 JoJo**:註冊 1300 retry slot、做一次人為斷資料演練(收告警+隔日自動補齊)。
+> （J3.2 驗收通過記錄見下方 JoJo 回填段落。）
+>
+> **J3.3 完成（2026-07-22，Claude）— 法人時點放寬,直接採用 same-day（使用者決定,不做 A/B 對照）**:
+> 前提校正——原文寫「17:00 後跑」,但 cron 是 **08:00**;放寬在 08:00 仍成立且更乾淨(D 法人隨 D 價於
+> D+1 06:00 入庫,08:00 D+1 跑時已公布,含 D 非前視;更早的 run 因未入庫資料不在 DB 自然只到已知日)。
+> 使用者裁示「就放寬,不用看是否顯著改善」,故**直接把法人規則改為 `trade_date <= as_of` 為唯一路徑**
+> (依 AGENTS.md 單一 canonical 路徑,刪掉 D-1 分支,不留 default 參數)。`MarketData.institutional`、
+> `build_signal_snapshot`、`run_backtest`、`tw_backtest_lookahead`(截斷邊界同步改 `<= D`)全部收斂到
+> same-day。self-check:data 14／signal 37／lookahead 10／backtest 15 全過,前視測試證明 same-day
+> 下仍 full==truncated 不洩漏。**注意:這改變 live 訊號**(法人視窗前移一天),回測策略定義也隨之改。
+> **待 JoJo**:正式 DB 在新規則下重跑驗證(runbook 見下方)——20 日前視抽樣 all_match、刷新回測基線、
+> 一次 force-run 確認 live cron 正常。**不改權重**。
+>
+> **J3.2 Mac Mini 驗收通過（2026-07-22，JoJo）**：註冊 OpenClaw Gateway cron
+> `daily_tw_strong_signal_1300_retry`（job id `f6c8e67e-d9a5-4105-acda-985ef5cba565`,
+> `0 13 * * 2-6` Asia/Taipei），payload 與 08:00 primary 相同：
+> `python3 scripts/tw_strong_signal.py --persist --format report`。force-run retry 在正式 DB
+> 已產出 07-20 時正確 delivered `SKIPPED (already-produced)`，不重覆寫入。斷資料演練使用正式
+> DB 副本 `/tmp/tw_market_j32_drill_20260722T010042.sqlite` 與
+> `/tmp/tw_strong_signal_j32_drill_20260722T010042.sqlite`：先把 07-20
+> `daily_update_runs` 改為 `incomplete` 並移除副本 signal 07-20 產出，Gateway command delivered
+> `SKIPPED (data-not-ready)` 且 signal rows 維持 0；再恢復 ledger `ok`，同 command delivered
+> 正常 report 並補寫副本 run_id=7 / predictions=10 / features_cache=10。正式 signal DB 未改動，
+> 仍為 `signal_runs=6`、`predictions=50`、`features_cache=50`。
 
 | Job | 內容 | DoD |
 |-----|------|-----|
-| J3.1 | **程式/docs 就緒（2026-07-21，Claude）；待 JoJo 註冊+force-run**：新增 cron job `daily_tw_strong_signal_0800`（早上 08:00 Tue–Sat，在 06:00 nextday 補價後、09:00 開盤前；Gateway `command` payload = `python3 scripts/tw_strong_signal.py --persist --format report`，遵循 `docs/cron.md` 安全規範與非空摘要交付規則）；`--as-of` 預設**最新已入庫交易日**（`default_as_of()`，非牆鐘今日，確保 live==backtest） | 連續 10 交易日零人工（PRD 成功指標）；cron note 進 docs（✅ docs 已進） |
-| J3.2 | **程式/docs 就緒（2026-07-21，Claude）；待 JoJo 註冊 retry slot + 斷資料演練**：失敗處理——`tw_strong_signal.py` daily 模式（無 `--as-of`）先查 `daily_update_runs`：最新 expected_trade_date 無 `ok` 列（06:00 補價失敗/incomplete）→ `SKIPPED (data-not-ready)` 告警且不寫入；已產出當日（`signal_runs` 已有成功列）→ `SKIPPED (already-produced)`，讓 13:00 retry 對 08:00 primary 冪等。兩種 skip 皆交付非空摘要、gate 只在 daily 模式（顯式 `--as-of` 不受影響、backtest 不受影響）。新增 retry job `daily_tw_strong_signal_1300_retry`（同指令,比照 market primary/retry） | 人為斷資料演練：收到告警且隔日自動補齊。self-check 36 項（含 readiness fail-open/ok/incomplete/skipped-retry、already-produced、skip report）+ main() 三情境端到端（not-ready skip 不寫入／ready+fresh 寫入／already-produced retry 不重覆）全過 |
-| J3.3 | 法人時點規則放寬：cron 固定 17:00 後跑則 D 日法人可用；改規則 + 重跑前視測試 + 回測對照 | 前視測試通過；對照報告落地 |
+| J3.1 | **Cron 已註冊並 force-run 通過（2026-07-22，JoJo）；10 交易日觀察中**：新增 cron job `daily_tw_strong_signal_0800`（早上 08:00 Tue–Sat，在 06:00 nextday 補價後、09:00 開盤前；OpenClaw Gateway `command` payload = `python3 scripts/tw_strong_signal.py --persist --format report`，非 macOS 原生 crontab/LaunchAgent、非 isolated agentTurn）；`--as-of` 預設**最新已入庫交易日**（`default_as_of()`，非牆鐘今日，確保 live==backtest） | force-run 已通過；剩連續 10 交易日零人工（PRD 成功指標） |
+| J3.2 | **完成（2026-07-22，JoJo）**：失敗處理——`tw_strong_signal.py` daily 模式（無 `--as-of`）先查 `daily_update_runs`：最新 expected_trade_date 無 `ok` 列（06:00 補價失敗/incomplete）→ `SKIPPED (data-not-ready)` 告警且不寫入；已產出當日（`signal_runs` 已有成功列）→ `SKIPPED (already-produced)`，讓 13:00 retry 對 08:00 primary 冪等。新增 retry job `daily_tw_strong_signal_1300_retry`（同指令,比照 market primary/retry），斷資料演練用正式 DB 副本驗證 skipped 不寫入、恢復後自動補寫 | 13:00 retry registered；self-check 36 項全過；Gateway command drill delivered `data-not-ready` and recovery report；正式 DB 未被演練污染 |
+| J3.3 | **完成（2026-07-22，Claude）；待 JoJo 正式 DB 重驗**：法人時點放寬,直接採用 same-day。法人規則改為唯一路徑 `trade_date <= as_of`（刪 D-1 分支,不留參數）；`MarketData.institutional`/`build_signal_snapshot`/`run_backtest`/`tw_backtest_lookahead`（截斷 `<= D`）全收斂。**改變 live 訊號**（法人視窗前移一天） | 前視測試通過（✅ self-check：same-day full==truncated 不洩漏，data 14／signal 37／lookahead 10／backtest 15）；待 JoJo 正式 DB 20 日前視抽樣 all_match + 刷新回測基線 + force-run 確認 live |
+
+### J3.3 正式 DB 重驗 runbook（待 JoJo 執行）
+
+規則已改為唯一 same-day（無 A/B 旗標）。在新規則下重跑驗證並刷新基線:
+
+```bash
+# 1) 前視抽樣(免 venv)——需 all_match=True:
+python3 scripts/tw_backtest_lookahead.py --from 2023-07-21 --to 2026-07-17 --samples 20
+
+# 2) 刷新回測基線(venv)——same-day 規則下的新績效:
+python3 scripts/tw_backtest.py --from 2023-07-21 --to 2026-07-17 \
+  --top-n 10 --holding-days 5 --min-avg-turnover 50000000 --benchmark-symbol 0050 \
+  --format json > /tmp/tw_backtest_3yr_sameday.json
+python3 scripts/tw_backtest_report.py --result /tmp/tw_backtest_3yr_sameday.json --format text
+
+# 3) force-run 確認 live cron 在新規則下正常(--persist 對正式 DB;或先用副本):
+python3 scripts/tw_strong_signal.py --persist --format report
+```
+
+舊 D-1 基線供對照(Phase 2 記錄):total_return 0.9002、CAGR 0.3815、Sharpe 0.983、MDD -0.401、
+勝率 0.44、輸 0050(+2.354)。把 same-day 新數字回填本節即可;不需再跑 D-1。回測唯讀免備份。
 | J3.4 | 融資融券餘額入庫（TWSE/TPEX 官方或 FinMind；PRD G2） | 回填 ≥ 1 年，品質檢查通過 |
 | J3.5 | 處置股/注意股清單入庫（PRD G3），股票池改用真實清單 | 取代「連續漲停」近似 |
 | J3.6 | TAIEX Total Return 指數歷史入庫（PRD G5），報告加第二基準 | 基準曲線抽查相符 |
