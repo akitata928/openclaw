@@ -326,14 +326,22 @@
 > `SKIPPED (data-not-ready)` 且 signal rows 維持 0；再恢復 ledger `ok`，同 command delivered
 > 正常 report 並補寫副本 run_id=7 / predictions=10 / features_cache=10。正式 signal DB 未改動，
 > 仍為 `signal_runs=6`、`predictions=50`、`features_cache=50`。
-
+>
+> **J3.8 程式/docs 就緒（2026-07-22，Claude）— 日報「昨日對答案」scorecard**:`--format report` 在
+> 今日 Top-N 後附前一筆 persisted 預測的實現報酬。誠實可執行基礎:以**回測一致的 T+1 開盤進場**
+> (`open(前一交易日+1)` 還原價,非收盤價,避免高估你抓不到的隔夜跳空)到最新收盤,算每檔報酬 +
+> 等權籃子均值 vs 0050 + 超額。純 report-only:讀 `predictions`、開自己的 `MarketData(as_of)`,
+> **不碰 `build_signal_snapshot`**(live/backtest 純函式不變、lookahead 8/backtest 15 self-check 仍全過),
+> 不改 schema。缺價(如當日下市)顯示 `n/a`;首日無前筆→不附。tw_strong_signal self-check 由 36→43 項
+> (含實現報酬 110/100-1、entry=前一交易日+1、籃子/基準/超額、無前筆→None、report 附加塊)。
+> 因 08:00 cron 已在跑,scorecard 下一次日報起自動出現,JoJo 端無需動作,觀察 Telegram 即可。
 | Job | 內容 | DoD |
 |-----|------|-----|
 | J3.1 | **Cron 已註冊並 force-run 通過（2026-07-22，JoJo）；10 交易日觀察中**：新增 cron job `daily_tw_strong_signal_0800`（早上 08:00 Tue–Sat，在 06:00 nextday 補價後、09:00 開盤前；OpenClaw Gateway `command` payload = `python3 scripts/tw_strong_signal.py --persist --format report`，非 macOS 原生 crontab/LaunchAgent、非 isolated agentTurn）；`--as-of` 預設**最新已入庫交易日**（`default_as_of()`，非牆鐘今日，確保 live==backtest） | force-run 已通過；剩連續 10 交易日零人工（PRD 成功指標） |
 | J3.2 | **完成（2026-07-22，JoJo）**：失敗處理——`tw_strong_signal.py` daily 模式（無 `--as-of`）先查 `daily_update_runs`：最新 expected_trade_date 無 `ok` 列（06:00 補價失敗/incomplete）→ `SKIPPED (data-not-ready)` 告警且不寫入；已產出當日（`signal_runs` 已有成功列）→ `SKIPPED (already-produced)`，讓 13:00 retry 對 08:00 primary 冪等。新增 retry job `daily_tw_strong_signal_1300_retry`（同指令,比照 market primary/retry），斷資料演練用正式 DB 副本驗證 skipped 不寫入、恢復後自動補寫 | 13:00 retry registered；self-check 36 項全過；Gateway command drill delivered `data-not-ready` and recovery report；正式 DB 未被演練污染 |
-| J3.3 | **完成（2026-07-22，Claude）；待 JoJo 正式 DB 重驗**：法人時點放寬,直接採用 same-day。法人規則改為唯一路徑 `trade_date <= as_of`（刪 D-1 分支,不留參數）；`MarketData.institutional`/`build_signal_snapshot`/`run_backtest`/`tw_backtest_lookahead`（截斷 `<= D`）全收斂。**改變 live 訊號**（法人視窗前移一天） | 前視測試通過（✅ self-check：same-day full==truncated 不洩漏，data 14／signal 37／lookahead 10／backtest 15）；待 JoJo 正式 DB 20 日前視抽樣 all_match + 刷新回測基線 + force-run 確認 live |
+| J3.3 | **完成（2026-07-22，Claude + JoJo formal DB）**：法人時點放寬,直接採用 same-day。法人規則改為唯一路徑 `trade_date <= as_of`（刪 D-1 分支,不留參數）；`MarketData.institutional`/`build_signal_snapshot`/`run_backtest`/`tw_backtest_lookahead`（截斷 `<= D`）全收斂。**改變 live 訊號**（法人視窗前移一天） | 前視測試通過（✅ self-check：same-day full==truncated 不洩漏，data 14／signal 37／lookahead 10／backtest 15）；JoJo 正式 DB 20 日前視抽樣 `all_match=True`、same-day 三年回測基線已刷新、live force-run 確認 `max_institutional_date=as_of` 且 `no_lookahead_ok=True` |
 
-### J3.3 正式 DB 重驗 runbook（待 JoJo 執行）
+### J3.3 正式 DB 重驗結果（2026-07-22，JoJo）
 
 規則已改為唯一 same-day（無 A/B 旗標）。在新規則下重跑驗證並刷新基線:
 
@@ -351,13 +359,38 @@ python3 scripts/tw_backtest_report.py --result /tmp/tw_backtest_3yr_sameday.json
 python3 scripts/tw_strong_signal.py --persist --format report
 ```
 
+執行環境：main `d80b729`（含 J3.3 same-day 交接存證）、dataops script path
+`repos/openclaw-jojo-dataops`；研究 venv `.venv-backtest` 依 `requirements-backtest.txt` 建立；
+回測讀正式 DB、輸出 `/tmp/tw_backtest_3yr_sameday.json`，未改權重。
+
+1. **前視抽樣（免 venv）**：`python3 scripts/tw_backtest_lookahead.py --from 2023-07-21 --to 2026-07-17 --samples 20`
+   結果：`dates=20 matched=20 all_match=True`，20 個抽樣日皆 `OK`。
+
+2. **same-day 三年回測基線（venv）**：2023-07-21..2026-07-17，`top_n=10`、`holding_days=5`、
+   `min_avg_turnover=50,000,000`、benchmark `0050`。新績效：total_return `1.1582119463651732`
+   （+115.82%）、CAGR `0.472987612965325`（+47.30%）、Sharpe `1.13162219200793`、
+   max_drawdown `-0.3975554479728234`（-39.76%）、win_rate `0.44294003868471954`（44.3%）、
+   annual_turnover `31.72x`、trades `1034`、orders `2058`、fees_paid `646540.1193371844`、
+   benchmark 0050 total_return `2.353870320180128`（+235.39%）、strategy excess `-119.57%`，
+   verdict 仍為 `strategy LOSES TO 0050 buy-and-hold after costs`。
+   逐年分拆（strategy / benchmark / excess）：2023 `-3.58% / +6.49% / -10.07%`；
+   2024 `+17.44% / +48.64% / -31.20%`；2025 `+0.01% / +36.86% / -36.85%`；
+   2026 `+90.56% / +54.82% / +35.74%`。
+
+3. **live force-run（正式 DB）**：顯式 `--as-of 2026-07-21 --persist --format report` 以避開
+   daily already-produced gate 並確認新規則；寫入 `run_id=8`、`prediction_count=10`。
+   JSON dry-run 驗證：`as_of=2026-07-21`、`trade_date=2026-07-21`、
+   `max_price_date=2026-07-21`、`max_institutional_date=2026-07-21`、
+   `max_ranking_date=2026-07-20`、`no_lookahead_ok=True`。
+
 舊 D-1 基線供對照(Phase 2 記錄):total_return 0.9002、CAGR 0.3815、Sharpe 0.983、MDD -0.401、
-勝率 0.44、輸 0050(+2.354)。把 same-day 新數字回填本節即可;不需再跑 D-1。回測唯讀免備份。
+勝率 0.44、輸 0050(+2.354)。Same-day 新基線報酬與 Sharpe 皆改善，但仍輸 0050；**不改權重**。
+規則轉換點：2026-07-22 08:00 正式 cron 仍是舊 D-1 規則；2026-07-23 起的排程才是 same-day。
 | J3.4 | 融資融券餘額入庫（TWSE/TPEX 官方或 FinMind；PRD G2） | 回填 ≥ 1 年，品質檢查通過 |
 | J3.5 | 處置股/注意股清單入庫（PRD G3），股票池改用真實清單 | 取代「連續漲停」近似 |
 | J3.6 | TAIEX Total Return 指數歷史入庫（PRD G5），報告加第二基準 | 基準曲線抽查相符 |
 | J3.7 | 訊號 v2：納入融資券特徵（券資比、融資增減率），回測對照 v1 | v1 vs v2 對照報告 |
-| J3.8 | 日報升級：每日清單 + 昨日預測對答案摘要進 Telegram | 每日自動收到 |
+| J3.8 | **程式/docs 就緒（2026-07-22，Claude）；待 JoJo 觀察日報**：日報升級——`tw_strong_signal.py --format report` 在今日清單後附「昨日對答案」scorecard：讀前一筆 persisted `predictions`，以**回測一致的 T+1 開盤進場**（`open(前一交易日+1)` 還原）到最新收盤算每檔實現報酬 + 等權籃子均值 vs 0050 + 超額。純 report-only（不改 schema、不碰 `build_signal_snapshot`、backtest 不受影響）；首日無前筆預測時不附。缺價（如當日下市）該檔顯示 `n/a` | 每日自動收到（cron 已跑,scorecard 隨 08:00 日報自動出現）。self-check：prev 讀取、entry=前一交易日+1、實現報酬 110/100-1、籃子/基準/超額、無前筆→None、report 附加 scorecard 塊全過 |
 
 **Phase 3 產出**：不碰鍵盤，每天自動收到候選清單與追蹤摘要。
 
